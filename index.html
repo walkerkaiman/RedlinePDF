@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>RedlinePDF - Construction Markup Tool</title>
+  </head>
+  <body>
+    <div id="app">
+      <!-- Top Toolbar -->
+      <header id="toolbar">
+        <div class="toolbar-group" id="toolbar-file" data-label="File">
+          <button class="tb-btn" id="btn-open-pdf" title="Import PDF (Ctrl+O)">
+            <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6zm4 18H6V4h7v5h5v11z"/></svg>
+            <span>Open PDF</span>
+          </button>
+          <button class="tb-btn" id="btn-open-project" title="Open Project (Ctrl+Shift+O)">
+            <svg viewBox="0 0 24 24"><path d="M20 6h-8l-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2z"/></svg>
+            <span>Open Project</span>
+          </button>
+          <button class="tb-btn" id="btn-save-project" title="Save Project (Ctrl+S)" disabled>
+            <svg viewBox="0 0 24 24"><path d="M17 3H5a2 2 0 00-2 2v14a2 2 0 002 2h14c1.1 0 2-.9 2-2V7l-4-4zm-5 16c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3zm3-10H5V5h10v4z"/></svg>
+            <span>Save</span>
+          </button>
+          <button class="tb-btn" id="btn-export-pdf" title="Export Redlined PDF (Ctrl+E)" disabled>
+            <svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+            <span>Export PDF</span>
+          </button>
+        </div>
+
+        <div class="toolbar-divider"></div>
+
+        <div class="toolbar-group" id="toolbar-view" data-label="View">
+          <button class="tb-btn tool-btn" id="btn-tool-pan" data-tool="pan" title="Pan (H)">
+            <svg viewBox="0 0 24 24"><path d="M10 9V7c0-1.1-.9-2-2-2s-2 .9-2 2v5.17L4.83 11A1.99 1.99 0 002 13c0 .53.21 1.04.59 1.41l3.83 3.84C7.45 19.3 9.22 20 11 20h3c3.31 0 6-2.69 6-6v-2c0-1.1-.9-2-2-2-1.1 0-2 .9-2 2v1h-1v-2c0-1.1-.9-2-2-2-1.1 0-2 .9-2 2v1h-1z"/></svg>
+            <span>Pan</span>
+          </button>
+          <button class="tb-btn" id="btn-zoom-in" title="Zoom In (+)">
+            <svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0016 9.5 6.5 6.5 0 109.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14zM12 10h-2v2H9v-2H7V9h2V7h1v2h2v1z"/></svg>
+            <span>Zoom In</span>
+          </button>
+          <button class="tb-btn" id="btn-zoom-out" title="Zoom Out (-)">
+            <svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0016 9.5 6.5 6.5 0 109.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14zM7 9h5v1H7z"/></svg>
+            <span>Zoom Out</span>
+          </button>
+          <button class="tb-btn" id="btn-fit-width" title="Fit to Width (F)">
+            <svg viewBox="0 0 24 24"><path d="M3 3h7v2H5v4H3V3zm11 0h7v6h-2V5h-5V3zM3 13h2v4h5v2H3v-6zm14 4h2V13h-2v4zm0 0h-5v2h5v-2z"/></svg>
+            <span>Fit Width</span>
+          </button>
+          <div class="tb-page-nav">
+            <button class="tb-btn-sm" id="btn-prev-page" title="Previous Page" disabled>&#8249;</button>
+            <span id="page-indicator">— / —</span>
+            <button class="tb-btn-sm" id="btn-next-page" title="Next Page" disabled>&#8250;</button>
+          </div>
+        </div>
+
+        <div class="toolbar-divider"></div>
+
+        <div class="toolbar-group" id="toolbar-edit" data-label="Edit">
+          <button class="tb-btn tool-btn" id="btn-tool-select" data-tool="select" title="Select (V)">
+            <svg viewBox="0 0 24 24"><path d="M4 0l16 12.279-6.78 1.179 4.078 7.522-2.059 1.02-4.078-7.522-3.161 5.22z"/></svg>
+            <span>Select</span>
+          </button>
+          <button class="tb-btn" id="btn-undo" title="Undo (Ctrl+Z)" disabled>
+            <svg viewBox="0 0 24 24"><path d="M12.5 8c-2.65 0-5.05.99-6.9 2.6L2 7v9h9l-3.62-3.62c1.39-1.16 3.16-1.88 5.12-1.88 3.54 0 6.55 2.31 7.6 5.5l2.37-.78C21.08 11.03 17.15 8 12.5 8z"/></svg>
+            <span>Undo</span>
+          </button>
+          <button class="tb-btn" id="btn-redo" title="Redo (Ctrl+Shift+Z)" disabled>
+            <svg viewBox="0 0 24 24"><path d="M18.4 10.6C16.55 8.99 14.15 8 11.5 8c-4.65 0-8.58 3.03-9.96 7.22L3.9 16c1.05-3.19 4.05-5.5 7.6-5.5 1.95 0 3.73.72 5.12 1.88L13 16h9V7l-3.6 3.6z"/></svg>
+            <span>Redo</span>
+          </button>
+          <button class="tb-btn" id="btn-delete" title="Delete Selected (Del)" disabled>
+            <svg viewBox="0 0 24 24"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+            <span>Delete</span>
+          </button>
+        </div>
+
+        <div class="toolbar-divider"></div>
+
+        <div class="toolbar-group" id="toolbar-draw" data-label="Draw">
+          <button class="tb-btn tool-btn" id="btn-tool-pen" data-tool="pen" title="Freehand Pen (P)">
+            <svg viewBox="0 0 24 24"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 000-1.41l-2.34-2.34a1 1 0 00-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
+            <span>Pen</span>
+          </button>
+          <button class="tb-btn tool-btn" id="btn-tool-line" data-tool="line" title="Line (L)">
+            <svg viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 3l5 9H7l5-9z"/></svg>
+            <span>Line</span>
+          </button>
+          <button class="tb-btn tool-btn" id="btn-tool-arrow" data-tool="arrow" title="Arrow (A)">
+            <svg viewBox="0 0 24 24"><path d="M12 4l-1.41 1.41L16.17 11H4v2h12.17l-5.58 5.59L12 20l8-8z"/></svg>
+            <span>Arrow</span>
+          </button>
+          <button class="tb-btn tool-btn" id="btn-tool-rect" data-tool="rect" title="Rectangle (R)">
+            <svg viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V5h14v14z"/></svg>
+            <span>Rect</span>
+          </button>
+          <button class="tb-btn tool-btn" id="btn-tool-ellipse" data-tool="ellipse" title="Ellipse (E)">
+            <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8z"/></svg>
+            <span>Ellipse</span>
+          </button>
+        </div>
+
+        <div class="toolbar-divider"></div>
+
+        <div class="toolbar-group" id="toolbar-shapes" data-label="Shapes">
+          <button class="tb-btn tool-btn" id="btn-tool-box" data-tool="box" title="Box with Fill (B)">
+            <svg viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"/></svg>
+            <span>Box</span>
+          </button>
+        </div>
+
+        <div class="toolbar-divider"></div>
+
+        <div class="toolbar-group" id="toolbar-text" data-label="Text">
+          <button class="tb-btn tool-btn" id="btn-tool-text" data-tool="text" title="Text Box (T)">
+            <svg viewBox="0 0 24 24"><path d="M5 4v3h5.5v12h3V7H19V4H5z"/></svg>
+            <span>Text</span>
+          </button>
+        </div>
+
+        <div class="toolbar-divider"></div>
+
+        <div class="toolbar-group" id="toolbar-measure" data-label="Measure">
+          <button class="tb-btn tool-btn" id="btn-tool-scale-set" data-tool="scale-set" title="Set Scale (S)">
+            <svg viewBox="0 0 24 24"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-7 9h-2V5h2v6zm0 4h-2v-2h2v2z"/></svg>
+            <span>Set Scale</span>
+          </button>
+          <button class="tb-btn tool-btn" id="btn-tool-measure-linear" data-tool="measure-linear" title="Linear Measure (M)">
+            <svg viewBox="0 0 24 24"><path d="M21 6H3c-1.1 0-2 .9-2 2v8c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 10H3V8h18v8zM5 13h2v2H5zm0-4h2v2H5zm4 0h2v2H9zm0 4h2v2H9zm4-4h2v2h-2zm0 4h2v2h-2zm4-4h2v2h-2zm0 4h2v2h-2z"/></svg>
+            <span>Linear</span>
+          </button>
+          <button class="tb-btn tool-btn" id="btn-tool-measure-rect" data-tool="measure-rect" title="Rectangle Area (Shift+R)">
+            <svg viewBox="0 0 24 24"><path d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z"/></svg>
+            <span>Rect Area</span>
+          </button>
+          <button class="tb-btn tool-btn" id="btn-tool-measure-poly" data-tool="measure-poly" title="Polygon Area (Shift+P)">
+            <svg viewBox="0 0 24 24"><path d="M17 12h-5v5h5v-5zM16 1v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2h-1V1h-2zm3 18H5V8h14v11z"/></svg>
+            <span>Poly Area</span>
+          </button>
+          <div class="units-selector">
+            <label for="units-select">Units:</label>
+            <select id="units-select" title="Measurement Units">
+              <optgroup label="Imperial">
+                <option value="ft-in" selected>Feet-Inches</option>
+                <option value="ft">Feet</option>
+                <option value="in">Inches</option>
+                <option value="yd">Yards</option>
+              </optgroup>
+              <optgroup label="Metric">
+                <option value="m">Meters</option>
+                <option value="cm">Centimeters</option>
+                <option value="mm">Millimeters</option>
+              </optgroup>
+            </select>
+          </div>
+        </div>
+      </header>
+
+      <!-- Main Content -->
+      <main id="main-content">
+        <!-- Canvas Viewport -->
+        <div id="canvas-viewport">
+          <!-- Drop zone shown when no PDF loaded -->
+          <div id="drop-zone">
+            <div class="drop-zone-inner">
+              <svg viewBox="0 0 24 24" class="drop-icon"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6zm4 18H6V4h7v5h5v11zm-3.06-8.83l-2.12 2.12-2.12-2.12 1.06-1.06.99.99V9h1.5v3.12l.99-.99 1.06 1.06-1.36 1.34z"/></svg>
+              <h2>Open a Construction PDF</h2>
+              <p>Drag and drop a PDF file here, or click below</p>
+              <button id="drop-open-btn" class="btn-primary">Open PDF</button>
+              <p class="drop-hint">Or open an existing project: <button id="drop-open-project-btn" class="btn-link">Open .redline file</button></p>
+            </div>
+          </div>
+          <!-- Canvas container shown when PDF loaded -->
+          <div id="canvas-scroll-container" style="display:none;">
+            <div id="canvas-container">
+              <div id="konva-container"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right Properties Panel -->
+        <aside id="properties-panel">
+          <div id="properties-content">
+            <div class="prop-section" id="prop-no-selection">
+              <p class="prop-hint">Select an object to edit its properties.</p>
+            </div>
+          </div>
+        </aside>
+      </main>
+
+      <!-- Status Bar -->
+      <footer id="status-bar">
+        <span id="status-page">No document</span>
+        <span class="status-sep">|</span>
+        <span id="status-zoom">100%</span>
+        <span class="status-sep">|</span>
+        <span id="status-cursor">x: —  y: —</span>
+        <span class="status-sep">|</span>
+        <span id="status-scale">Scale: Not calibrated</span>
+        <span class="status-sep">|</span>
+        <span id="status-units">Imperial (ft-in)</span>
+      </footer>
+    </div>
+
+    <!-- Hidden inputs -->
+    <input type="file" id="file-input-pdf" accept=".pdf" style="display:none;">
+    <input type="file" id="file-input-project" accept=".redline" style="display:none;">
+
+    <!-- Modal overlay -->
+    <div id="modal-overlay" style="display:none;" role="dialog" aria-modal="true">
+      <div id="modal-box">
+        <div id="modal-header">
+          <span id="modal-title">Dialog</span>
+          <button id="modal-close" aria-label="Close">&times;</button>
+        </div>
+        <div id="modal-body"></div>
+        <div id="modal-footer">
+          <button id="modal-cancel" class="btn-secondary">Cancel</button>
+          <button id="modal-ok" class="btn-primary">OK</button>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
