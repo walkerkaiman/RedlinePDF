@@ -13,17 +13,55 @@ permissions:
   contents: write
 
 jobs:
+  # ── Step 1: Create the draft release once ─────────────────────────────────
+  create-release:
+    runs-on: ubuntu-latest
+    outputs:
+      release_id: ${{ steps.create.outputs.result }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create draft release
+        id: create
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data } = await github.rest.repos.createRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag_name: context.ref.replace('refs/tags/', ''),
+              name: `RedlinePDF ${context.ref.replace('refs/tags/', '')}`,
+              body: [
+                `## RedlinePDF ${context.ref.replace('refs/tags/', '')}`,
+                '',
+                '### Downloads',
+                '| Platform | File |',
+                '|----------|------|',
+                '| Windows | `RedlinePDF_*_x64-setup.exe` |',
+                '| macOS (Universal) | `RedlinePDF_*_universal.dmg` |',
+                '',
+                '### Installing',
+                '- **Windows:** Run the setup `.exe` and follow the wizard.',
+                '- **macOS:** Open the `.dmg`, drag RedlinePDF to Applications.',
+              ].join('\n'),
+              draft: true,
+              prerelease: false,
+            });
+            return data.id;
+
+  # ── Step 2: Build & upload assets (runs in parallel after release exists) ──
   build:
+    needs: create-release
     strategy:
       fail-fast: false
       matrix:
         include:
           - platform: windows-latest
+            rust-targets: x86_64-pc-windows-msvc
             args: '--target x86_64-pc-windows-msvc'
-            rust-target: x86_64-pc-windows-msvc
           - platform: macos-latest
-            args: '--target aarch64-apple-darwin --target x86_64-apple-darwin'
-            rust-target: ''   # handled individually below
+            rust-targets: aarch64-apple-darwin,x86_64-apple-darwin
+            args: '--target universal-apple-darwin'
 
     runs-on: ${{ matrix.platform }}
 
@@ -45,49 +83,18 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || 'x86_64-pc-windows-msvc' }}
+          targets: ${{ matrix.rust-targets }}
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: './src-tauri -> target'
 
-      # ── macOS: build universal binary (Apple Silicon + Intel) ───────────────
-      - name: Build (macOS universal)
-        if: matrix.platform == 'macos-latest'
+      # ── Build & upload to the pre-created release ────────────────────────────
+      - name: Build and upload
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: 'RedlinePDF ${{ github.ref_name }}'
-          releaseBody: |
-            ## RedlinePDF ${{ github.ref_name }}
-
-            ### Downloads
-            | Platform | File |
-            |----------|------|
-            | Windows | `RedlinePDF_*_x64-setup.exe` |
-            | macOS (Universal) | `RedlinePDF_*_universal.dmg` |
-
-            ### Installing
-            - **Windows:** Run the setup `.exe` and follow the wizard.
-            - **macOS:** Open the `.dmg`, drag RedlinePDF to Applications.
-          releaseDraft: true
-          prerelease: false
-          args: '--target universal-apple-darwin'
-
-      # ── Windows ─────────────────────────────────────────────────────────────
-      - name: Build (Windows)
-        if: matrix.platform == 'windows-latest'
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tagName: ${{ github.ref_name }}
-          releaseName: 'RedlinePDF ${{ github.ref_name }}'
-          releaseBody: |
-            ## RedlinePDF ${{ github.ref_name }}
-          releaseDraft: true
-          prerelease: false
-          args: '--target x86_64-pc-windows-msvc'
+          releaseId: ${{ needs.create-release.outputs.release_id }}
+          args: ${{ matrix.args }}
