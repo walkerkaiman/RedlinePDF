@@ -38,6 +38,18 @@ export class SelectTool extends BaseTool {
     stage.on('mousedown.select touchstart.select', (e) => {
       const target = e.target;
 
+      // If the click landed on the Transformer itself or any of its anchors /
+      // border line, let Konva's built-in Transformer handling take over.
+      // We must NOT clear the transformer nodes here — doing so would cancel
+      // any resize/rotate operation before it begins.  In WebView2 (Tauri),
+      // Konva's internal cancelBubble sometimes doesn't prevent the stage
+      // handler from firing, so we guard explicitly.
+      let checkNode: Konva.Node | null = target;
+      while (checkNode) {
+        if (checkNode === this.transformer) return;
+        checkNode = checkNode.getParent?.() ?? null;
+      }
+
       // Determine whether the click landed on a markup node (or its child).
       const markupNode = target.hasName('markup')
         ? target
@@ -52,7 +64,7 @@ export class SelectTool extends BaseTool {
         return;
       }
 
-      // Anything that is not a markup (stage background, transformer handles,
+      // Anything that is not a markup or transformer handle (stage background,
       // the page image, etc.) starts a rubber-band selection.
       this.transformer!.nodes([]);
       appState.setSelection(null);

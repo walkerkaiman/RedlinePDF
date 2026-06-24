@@ -289,6 +289,7 @@ html, body { height: 100%; overflow: hidden; }
   overflow: hidden;
   cursor: default;
   background: #111418;
+  touch-action: none;
 }
 
 #canvas-container {
@@ -296,17 +297,23 @@ html, body { height: 100%; overflow: hidden; }
   inset: 0;
   cursor: default;
   user-select: none;
+  /* Prevent WebView2 / touch browsers from intercepting pointer events for
+     pan/zoom gestures — required for Konva Transformer drag anchors to work
+     correctly in the Tauri desktop app. */
+  touch-action: none;
 }
 
 #konva-container {
   position: absolute;
   inset: 0;
+  touch-action: none;
 }
 
 /* Konva creates its canvas elements inside this div; keep them block so there's no
    baseline gap, but let Konva set the actual pixel dimensions via its own API. */
 #konva-container canvas {
   display: block;
+  touch-action: none;
 }
 
 /* ── Properties Panel ────────────────────────────────────────────────────── */
