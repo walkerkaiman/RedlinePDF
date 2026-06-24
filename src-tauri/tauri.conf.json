@@ -41,7 +41,6 @@
         "ext": ["redline"],
         "name": "RedlinePDF Project",
         "description": "RedlinePDF Markup Project",
-        "icon": "icons/icon.ico",
         "mimeType": "application/x-redlinepdf"
       }
     ]
