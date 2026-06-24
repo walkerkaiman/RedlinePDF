@@ -1,39 +1,35 @@
 /**
  * Tauri integration layer.
- * Provides native file open/save dialogs when running inside Tauri.
- * Falls back silently to browser <input type="file"> when running in a browser.
+ * Provides native file open/save dialogs when running inside the Tauri desktop app.
+ * All functions are no-ops (return null) when running in a regular browser.
  *
- * The /* @vite-ignore * / comments suppress Vite's module resolution for these
- * imports — they are only available at runtime inside the Tauri webview.
+ * These packages are bundled by Vite. They only do anything at call-time (via
+ * Tauri IPC), so importing them in a browser context is safe — they just
+ * export functions that wrap window.__TAURI_INTERNALS__, which is not present
+ * in a browser and therefore never reached (isTauri() guards all calls).
  */
 
-/** Returns true when running inside a Tauri window */
+import { open, save } from '@tauri-apps/plugin-dialog';
+import { readFile, writeFile, readTextFile } from '@tauri-apps/plugin-fs';
+
+/** Returns true when running inside a Tauri desktop window */
 export function isTauri(): boolean {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 }
 
 /**
- * Open a native "Open PDF" dialog.
+ * Open a native "Open PDF" dialog and return the file bytes + name.
  * Returns null in a browser (handled by <input type="file">).
  */
 export async function openPdfFileNative(): Promise<{ bytes: Uint8Array; name: string } | null> {
   if (!isTauri()) return null;
-
   try {
-    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-    // @ts-ignore – available only inside Tauri webview
-    const { open } = await import(/* @vite-ignore */ '@tauri-apps/plugin-dialog');
-    // @ts-ignore
-    const { readFile } = await import(/* @vite-ignore */ '@tauri-apps/plugin-fs');
-
     const path = await open({
       title: 'Open PDF',
       filters: [{ name: 'PDF Files', extensions: ['pdf'] }],
       multiple: false,
     });
-
     if (!path || Array.isArray(path)) return null;
-
     const bytes = await readFile(path);
     const name = (path as string).split(/[\\/]/).pop() ?? 'document.pdf';
     return { bytes: new Uint8Array(bytes), name };
@@ -45,28 +41,21 @@ export async function openPdfFileNative(): Promise<{ bytes: Uint8Array; name: st
 
 /**
  * Save bytes via a native "Save" dialog.
- * Returns the path saved to, or null if cancelled.
+ * Returns the path saved to, or null if cancelled or in browser mode.
  */
 export async function saveFileNative(
   bytes: Uint8Array,
   defaultName: string,
   extension: string,
-  filterLabel: string
+  filterLabel: string,
 ): Promise<string | null> {
   if (!isTauri()) return null;
-
   try {
-    // @ts-ignore
-    const { save } = await import(/* @vite-ignore */ '@tauri-apps/plugin-dialog');
-    // @ts-ignore
-    const { writeFile } = await import(/* @vite-ignore */ '@tauri-apps/plugin-fs');
-
     const path = await save({
       title: 'Save File',
       defaultPath: defaultName,
       filters: [{ name: filterLabel, extensions: [extension] }],
     });
-
     if (!path) return null;
     await writeFile(path, bytes);
     return path;
@@ -77,25 +66,18 @@ export async function saveFileNative(
 }
 
 /**
- * Open a native "Open Project" (.redline) dialog.
+ * Open a native "Open Project" (.redline) dialog and return a File object.
+ * Returns null in a browser.
  */
 export async function openProjectFileNative(): Promise<File | null> {
   if (!isTauri()) return null;
-
   try {
-    // @ts-ignore
-    const { open } = await import(/* @vite-ignore */ '@tauri-apps/plugin-dialog');
-    // @ts-ignore
-    const { readTextFile } = await import(/* @vite-ignore */ '@tauri-apps/plugin-fs');
-
     const path = await open({
       title: 'Open Project',
       filters: [{ name: 'RedlinePDF Projects', extensions: ['redline'] }],
       multiple: false,
     });
-
     if (!path || Array.isArray(path)) return null;
-
     const text = await readTextFile(path as string);
     const blob = new Blob([text], { type: 'application/json' });
     const name = (path as string).split(/[\\/]/).pop() ?? 'project.redline';
