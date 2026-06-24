@@ -84,7 +84,7 @@
             <span>Pen</span>
           </button>
           <button class="tb-btn tool-btn" id="btn-tool-line" data-tool="line" title="Line (L)">
-            <svg viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 3l5 9H7l5-9z"/></svg>
+            <svg viewBox="0 0 24 24"><path style="fill:none;stroke:currentColor;stroke-width:2.5;stroke-linecap:round" d="M5 19L19 5"/></svg>
             <span>Line</span>
           </button>
           <button class="tb-btn tool-btn" id="btn-tool-arrow" data-tool="arrow" title="Arrow (A)">
@@ -99,11 +99,6 @@
             <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8z"/></svg>
             <span>Ellipse</span>
           </button>
-        </div>
-
-        <div class="toolbar-divider"></div>
-
-        <div class="toolbar-group" id="toolbar-shapes" data-label="Shapes">
           <button class="tb-btn tool-btn" id="btn-tool-box" data-tool="box" title="Box with Fill (B)">
             <svg viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"/></svg>
             <span>Box</span>
@@ -123,7 +118,10 @@
 
         <div class="toolbar-group" id="toolbar-measure" data-label="Measure">
           <button class="tb-btn tool-btn" id="btn-tool-scale-set" data-tool="scale-set" title="Set Scale (S)">
-            <svg viewBox="0 0 24 24"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-7 9h-2V5h2v6zm0 4h-2v-2h2v2z"/></svg>
+            <svg viewBox="0 0 24 24">
+              <path style="fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round" d="M3 10h18M3 7v6M21 7v6M9 9v3M15 9v3"/>
+              <path style="fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round" d="M3 18h18M6 16l-3 2 3 2M18 16l3 2-3 2"/>
+            </svg>
             <span>Set Scale</span>
           </button>
           <button class="tb-btn tool-btn" id="btn-tool-measure-linear" data-tool="measure-linear" title="Linear Measure (M)">
@@ -131,11 +129,17 @@
             <span>Linear</span>
           </button>
           <button class="tb-btn tool-btn" id="btn-tool-measure-rect" data-tool="measure-rect" title="Rectangle Area (Shift+R)">
-            <svg viewBox="0 0 24 24"><path d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z"/></svg>
+            <svg viewBox="0 0 24 24">
+              <rect x="3" y="5" width="18" height="14" rx="1" style="fill:none;stroke:currentColor;stroke-width:1.5;stroke-dasharray:4 2"/>
+              <path style="fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round" d="M8 12h8M12 8v8"/>
+            </svg>
             <span>Rect Area</span>
           </button>
           <button class="tb-btn tool-btn" id="btn-tool-measure-poly" data-tool="measure-poly" title="Polygon Area (Shift+P)">
-            <svg viewBox="0 0 24 24"><path d="M17 12h-5v5h5v-5zM16 1v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2h-1V1h-2zm3 18H5V8h14v11z"/></svg>
+            <svg viewBox="0 0 24 24">
+              <path style="fill:none;stroke:currentColor;stroke-width:1.5;stroke-linejoin:round" d="M12 3L20 9L17 20L7 20L4 9Z"/>
+              <circle cx="12" cy="3" r="1.5"/><circle cx="20" cy="9" r="1.5"/><circle cx="17" cy="20" r="1.5"/><circle cx="7" cy="20" r="1.5"/><circle cx="4" cy="9" r="1.5"/>
+            </svg>
             <span>Poly Area</span>
           </button>
           <div class="units-selector">
@@ -196,8 +200,6 @@
         <span id="status-zoom">100%</span>
         <span class="status-sep">|</span>
         <span id="status-cursor">x: —  y: —</span>
-        <span class="status-sep">|</span>
-        <span id="status-scale">Scale: Not calibrated</span>
         <span class="status-sep">|</span>
         <span id="status-units">Imperial (ft-in)</span>
       </footer>

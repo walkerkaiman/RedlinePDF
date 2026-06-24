@@ -6,8 +6,10 @@ import type { EllipseMarkup } from '../model/document.ts';
 
 export class EllipseTool extends BaseTool {
   private isDrawing = false;
-  private startPos = { x: 0, y: 0 };
+  private centerPos = { x: 0, y: 0 };
   private previewEllipse: Konva.Ellipse | null = null;
+  /** Small cross-hair lines rendered at the center while dragging */
+  private centerMark: Konva.Line | null = null;
 
   constructor(ctx: ToolContext) {
     super('ellipse', ctx);
@@ -21,8 +23,9 @@ export class EllipseTool extends BaseTool {
       const pos = this.ctx.stageManager.getLayerPointer();
       if (!pos) return;
       this.isDrawing = true;
-      this.startPos = { ...pos };
+      this.centerPos = { ...pos };
       const style = this.ctx.getStyle();
+
       this.previewEllipse = new Konva.Ellipse({
         x: pos.x, y: pos.y, radiusX: 0, radiusY: 0,
         stroke: style.strokeColor ?? '#e63946',
@@ -30,18 +33,27 @@ export class EllipseTool extends BaseTool {
         opacity: style.strokeOpacity ?? 1,
         fill: 'transparent',
       });
-      interactionLayer.add(this.previewEllipse);
+
+      // Small cross-hair to mark the center point while dragging
+      const T = 6;
+      this.centerMark = new Konva.Line({
+        points: [pos.x - T, pos.y, pos.x + T, pos.y, NaN, NaN, pos.x, pos.y - T, pos.x, pos.y + T],
+        stroke: style.strokeColor ?? '#e63946',
+        strokeWidth: 1,
+        opacity: 0.6,
+      });
+
+      interactionLayer.add(this.previewEllipse, this.centerMark);
     });
 
     stage.on('mousemove.ellipse touchmove.ellipse', () => {
       if (!this.isDrawing || !this.previewEllipse) return;
       const pos = this.ctx.stageManager.getLayerPointer();
       if (!pos) return;
-      const rx = Math.abs(pos.x - this.startPos.x) / 2;
-      const ry = Math.abs(pos.y - this.startPos.y) / 2;
-      const cx = (this.startPos.x + pos.x) / 2;
-      const cy = (this.startPos.y + pos.y) / 2;
-      this.previewEllipse.setAttrs({ x: cx, y: cy, radiusX: rx, radiusY: ry });
+      const dx = pos.x - this.centerPos.x;
+      const dy = pos.y - this.centerPos.y;
+      const radius = Math.sqrt(dx * dx + dy * dy);
+      this.previewEllipse.setAttrs({ radiusX: radius, radiusY: radius });
       interactionLayer.draw();
     });
 
@@ -50,27 +62,32 @@ export class EllipseTool extends BaseTool {
       this.isDrawing = false;
 
       const pos = this.ctx.stageManager.getLayerPointer();
-      if (!pos) { this.previewEllipse.destroy(); this.previewEllipse = null; return; }
-
-      const rx = Math.abs(pos.x - this.startPos.x) / 2;
-      const ry = Math.abs(pos.y - this.startPos.y) / 2;
 
       this.previewEllipse.destroy();
       this.previewEllipse = null;
+      this.centerMark?.destroy();
+      this.centerMark = null;
 
-      if (rx < 4 || ry < 4) return;
+      if (!pos) return;
 
-      const cx = (this.startPos.x + pos.x) / 2;
-      const cy = (this.startPos.y + pos.y) / 2;
+      const dx = pos.x - this.centerPos.x;
+      const dy = pos.y - this.centerPos.y;
+      const radius = Math.sqrt(dx * dx + dy * dy);
+
+      if (radius < 4) return;
+
       const h = this.ctx.getPageHeightPts();
-      const pdfCenter = konvaToPdf(cx, cy, h);
+      const pdfCenter = konvaToPdf(this.centerPos.x, this.centerPos.y, h);
 
       const markup: EllipseMarkup = {
         id: generateId(),
         type: 'ellipse',
         pageIndex: this.ctx.getPageIndex(),
         style: { ...this.ctx.getStyle() },
-        cx: pdfCenter.x, cy: pdfCenter.y, rx, ry,
+        cx: pdfCenter.x,
+        cy: pdfCenter.y,
+        rx: radius,
+        ry: radius,
       };
       this.ctx.onMarkupAdd(markup);
     });
@@ -83,6 +100,7 @@ export class EllipseTool extends BaseTool {
     stage.off('mouseup.ellipse touchend.ellipse');
     stage.container().style.cursor = 'default';
     if (this.previewEllipse) { this.previewEllipse.destroy(); this.previewEllipse = null; }
+    if (this.centerMark) { this.centerMark.destroy(); this.centerMark = null; }
     this.isDrawing = false;
   }
 }

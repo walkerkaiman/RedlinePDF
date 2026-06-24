@@ -4,53 +4,56 @@ import type { MarkupStyle, MarkupType } from '../model/document.ts';
 
 /**
  * Properties panel on the right side.
- * Shows context-sensitive controls based on the active tool.
+ * Shows context-sensitive controls based on the active tool / selection.
  */
 
 export function initPropertiesPanel(): void {
   const panel = document.getElementById('properties-content')!;
 
+  // Track structural context so we only rebuild the panel when the tool or
+  // selected markup(s) actually change — NOT on every style-prop update.
+  // Without this guard, dragging a slider triggers setStyleProp → state change
+  // → panel rebuild → slider element destroyed mid-drag → drag snaps to click.
+  let lastTool: string | null = null;
+  let lastMarkupIds = '';
+  let lastMarkupTypes = '';
+
   appState.subscribe((state) => {
-    renderPanel(panel, state.activeTool, state.activeStyle, state.selectedMarkupId, state.selectedMarkupType);
+    const idsKey = state.selectedMarkupIds.join(',');
+    const typesKey = state.selectedMarkupTypes.join(',');
+    if (
+      state.activeTool === lastTool &&
+      idsKey === lastMarkupIds &&
+      typesKey === lastMarkupTypes
+    ) {
+      return; // style-only change — the panel DOM is still correct
+    }
+    lastTool = state.activeTool;
+    lastMarkupIds = idsKey;
+    lastMarkupTypes = typesKey;
+    renderPanel(panel, state);
   });
 
-  renderPanel(panel, appState.state.activeTool, appState.state.activeStyle, appState.state.selectedMarkupId, appState.state.selectedMarkupType);
+  renderPanel(panel, appState.state);
 }
 
-function renderPanel(
-  panel: HTMLElement,
-  tool: string,
-  style: MarkupStyle,
-  selectedMarkupId: string | null,
-  selectedMarkupType: MarkupType | null,
-): void {
+function renderPanel(panel: HTMLElement, state: typeof appState.state): void {
   panel.innerHTML = '';
 
-  const strokeTools: string[] = ['pen', 'line', 'arrow', 'rect', 'ellipse'];
-  const fillTools: string[] = ['box'];
-  const textTools: string[] = ['text'];
-  const measureTools: string[] = ['measure-linear', 'measure-rect', 'measure-poly'];
+  const { activeTool, activeStyle: style, selectedMarkupIds, selectedMarkupTypes } = state;
 
-  // When a markup is selected in select mode, treat the panel as if
-  // the active "tool" were the type of the selected markup.
-  const effectiveTool =
-    tool === 'select' && selectedMarkupId && selectedMarkupType
-      ? selectedMarkupType
-      : tool;
+  const isSelect = activeTool === 'select';
+  const hasSelection = selectedMarkupIds.length > 0;
+  const isMulti = selectedMarkupIds.length > 1;
 
-  // ── Nav / utility tools ───────────────────────────────────────────────────
+  // ── Nav / utility tools with no selection ────────────────────────────────
 
-  if (effectiveTool === 'select') {
-    panel.innerHTML = '<p class="prop-hint">Click an object to select it and edit its properties.</p>';
-    return;
-  }
-
-  if (effectiveTool === 'pan') {
+  if (activeTool === 'pan') {
     panel.innerHTML = '<p class="prop-hint">Pan mode. Click and drag to navigate.</p>';
     return;
   }
 
-  if (effectiveTool === 'scale-set') {
+  if (activeTool === 'scale-set') {
     panel.innerHTML = `
       <div class="prop-section">
         <h4 class="prop-title">Set Drawing Scale</h4>
@@ -64,7 +67,26 @@ function renderPanel(
     return;
   }
 
-  if (measureTools.includes(effectiveTool)) {
+  if (isSelect && !hasSelection) {
+    panel.innerHTML = '<p class="prop-hint">Click an object to select it, or drag to select multiple.</p>';
+    return;
+  }
+
+  // ── Resolve effective set of types to display ─────────────────────────────
+  // For an active drawing tool, the "type" is just that tool.
+  // For a selection, use the types of selected markups.
+
+  const measureToolNames = ['measure-linear', 'measure-rect', 'measure-poly'];
+
+  let effectiveTypes: MarkupType[];
+  if (isSelect && hasSelection) {
+    effectiveTypes = selectedMarkupTypes;
+  } else {
+    effectiveTypes = [activeTool as MarkupType];
+  }
+
+  // ── Measurement tool (drawing mode, no selection) ────────────────────────
+  if (!isSelect && measureToolNames.includes(activeTool)) {
     panel.innerHTML = `
       <div class="prop-section">
         <h4 class="prop-title">Measurement</h4>
@@ -74,31 +96,58 @@ function renderPanel(
     return;
   }
 
-  // ── Drawing / markup tools ────────────────────────────────────────────────
+  // ── Multi-select or single-select header ──────────────────────────────────
 
-  // Header when showing a selected object's properties
-  if (tool === 'select' && selectedMarkupId) {
+  if (isSelect && hasSelection) {
     const header = document.createElement('div');
     header.className = 'prop-section';
-    header.innerHTML = `<h4 class="prop-title">${markupTypeLabel(selectedMarkupType!)} Properties</h4>`;
+    if (isMulti) {
+      const countLabel = `${selectedMarkupIds.length} elements selected`;
+      const typesList = [...new Set(effectiveTypes.map(markupTypeLabel))].join(', ');
+      header.innerHTML = `<h4 class="prop-title">${countLabel}</h4><p class="prop-hint">${typesList}</p>`;
+    } else {
+      header.innerHTML = `<h4 class="prop-title">${markupTypeLabel(effectiveTypes[0])} Properties</h4>`;
+    }
     panel.appendChild(header);
   }
 
-  if ([...strokeTools, ...fillTools].includes(effectiveTool)) {
+  // ── Determine which property sections to show ─────────────────────────────
+
+  const typesSet = new Set(effectiveTypes);
+
+  const strokeTypes: MarkupType[] = ['pen', 'line', 'arrow', 'rect', 'ellipse', 'box', 'measure-linear', 'measure-rect', 'measure-poly'];
+  const fillTypes: MarkupType[] = ['box'];
+  const textTypes: MarkupType[] = ['text'];
+  const measureSelectedTypes: MarkupType[] = ['measure-linear', 'measure-rect', 'measure-poly'];
+
+  const showStroke = strokeTypes.some(t => typesSet.has(t));
+  const showFill   = fillTypes.some(t => typesSet.has(t));
+  const showText   = textTypes.some(t => typesSet.has(t));
+  const showMeasureInfo = measureSelectedTypes.some(t => typesSet.has(t)) && isSelect && hasSelection;
+
+  // Label for the stroke/border section:
+  // call it "Border" when the selection contains only rect/box types (and no pen/line etc.)
+  const borderOnlyTypes = new Set<MarkupType>(['rect', 'box']);
+  const strokeSectionLabel =
+    showStroke && [...typesSet].filter(t => strokeTypes.includes(t)).every(t => borderOnlyTypes.has(t))
+      ? 'Border'
+      : 'Stroke';
+
+  // ── Stroke / Border section ───────────────────────────────────────────────
+
+  if (showStroke) {
     const strokeSection = document.createElement('div');
     strokeSection.className = 'prop-section';
-    strokeSection.innerHTML = `<h4 class="prop-title">Stroke</h4>`;
+    strokeSection.innerHTML = `<h4 class="prop-title">${strokeSectionLabel}</h4>`;
 
     strokeSection.appendChild(createColorPicker({
       label: 'Color',
       initialColor: style.strokeColor ?? '#e63946',
       onChange: (c) => appState.setStyleProp('strokeColor', c),
     }));
-
-    strokeSection.appendChild(createSliderRow('Width', style.strokeWidth ?? 2, 1, 20, 1, (v) => {
+    strokeSection.appendChild(createSliderRow('Width', style.strokeWidth ?? 2, 0, 20, 1, (v) => {
       appState.setStyleProp('strokeWidth', v);
     }));
-
     strokeSection.appendChild(createSliderRow('Opacity', (style.strokeOpacity ?? 1) * 100, 0, 100, 5, (v) => {
       appState.setStyleProp('strokeOpacity', v / 100);
     }, '%'));
@@ -106,7 +155,9 @@ function renderPanel(
     panel.appendChild(strokeSection);
   }
 
-  if (fillTools.includes(effectiveTool)) {
+  // ── Fill section (box only) ───────────────────────────────────────────────
+
+  if (showFill) {
     const fillSection = document.createElement('div');
     fillSection.className = 'prop-section';
     fillSection.innerHTML = `<h4 class="prop-title">Fill</h4>`;
@@ -116,28 +167,16 @@ function renderPanel(
       initialColor: style.fillColor ?? '#e63946',
       onChange: (c) => appState.setStyleProp('fillColor', c),
     }));
-
     fillSection.appendChild(createSliderRow('Opacity', (style.fillOpacity ?? 0.2) * 100, 0, 100, 5, (v) => {
       appState.setStyleProp('fillOpacity', v / 100);
     }, '%'));
 
     panel.appendChild(fillSection);
-
-    const borderSection = document.createElement('div');
-    borderSection.className = 'prop-section';
-    borderSection.innerHTML = `<h4 class="prop-title">Border</h4>`;
-    borderSection.appendChild(createColorPicker({
-      label: 'Color',
-      initialColor: style.strokeColor ?? '#e63946',
-      onChange: (c) => appState.setStyleProp('strokeColor', c),
-    }));
-    borderSection.appendChild(createSliderRow('Width', style.strokeWidth ?? 2, 0, 20, 1, (v) => {
-      appState.setStyleProp('strokeWidth', v);
-    }));
-    panel.appendChild(borderSection);
   }
 
-  if (textTools.includes(effectiveTool)) {
+  // ── Text section ──────────────────────────────────────────────────────────
+
+  if (showText) {
     const textSection = document.createElement('div');
     textSection.className = 'prop-section';
     textSection.innerHTML = `<h4 class="prop-title">Text</h4>`;
@@ -153,7 +192,6 @@ function renderPanel(
       ],
       (v) => appState.setStyleProp('fontFamily', v),
     ));
-
     textSection.appendChild(createSliderRow('Size', style.fontSize ?? 12, 6, 72, 1, (v) => {
       appState.setStyleProp('fontSize', v);
     }, 'pt'));
@@ -197,6 +235,16 @@ function renderPanel(
         appState.setStyleProp('italic', !appState.state.activeStyle.italic);
       });
     }, 0);
+  }
+
+  // ── Measurement info (when a measure markup is selected) ──────────────────
+
+  if (showMeasureInfo) {
+    const infoSection = document.createElement('div');
+    infoSection.className = 'prop-section';
+    infoSection.innerHTML = `<p class="prop-hint" id="measure-scale-status"></p>`;
+    panel.appendChild(infoSection);
+    updateMeasureStatus();
   }
 }
 

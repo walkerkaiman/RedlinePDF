@@ -127,11 +127,6 @@ export function updateCursorStatus(x: number, y: number): void {
   if (cursorSt) cursorSt.textContent = `x: ${x.toFixed(1)}  y: ${y.toFixed(1)}`;
 }
 
-/** Update scale display on the status bar */
-export function updateScaleStatus(label: string): void {
-  const scaleSt = document.getElementById('status-scale');
-  if (scaleSt) scaleSt.textContent = `Scale: ${label}`;
-}
 
 /** Show/hide drop zone vs canvas */
 export function showCanvas(show: boolean): void {

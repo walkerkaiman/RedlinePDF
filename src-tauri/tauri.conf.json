@@ -35,6 +35,15 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
+    ],
+    "fileAssociations": [
+      {
+        "ext": ["redline"],
+        "name": "RedlinePDF Project",
+        "description": "RedlinePDF Markup Project",
+        "icon": "icons/icon.ico",
+        "mimeType": "application/x-redlinepdf"
+      }
     ]
   }
 }

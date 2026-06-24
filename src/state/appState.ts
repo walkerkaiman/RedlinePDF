@@ -13,9 +13,14 @@ export interface AppStateData {
   zoom: number;
   units: UnitsSettings;
   activeStyle: MarkupStyle;
+  /** Primary selected ID (single-select only; null when 0 or 2+ selected) */
   selectedMarkupId: string | null;
-  /** Type of the currently-selected markup (null when nothing is selected) */
+  /** Type of the primary selected markup (null when 0 or 2+ selected) */
   selectedMarkupType: MarkupType | null;
+  /** All currently selected markup IDs (single or multi) */
+  selectedMarkupIds: string[];
+  /** Types of all currently selected markups (parallel to selectedMarkupIds) */
+  selectedMarkupTypes: MarkupType[];
   hasPdf: boolean;
   undoAvailable: boolean;
   redoAvailable: boolean;
@@ -38,6 +43,8 @@ class AppStateManager {
     },
     selectedMarkupId: null,
     selectedMarkupType: null,
+    selectedMarkupIds: [],
+    selectedMarkupTypes: [],
     hasPdf: false,
     undoAvailable: false,
     redoAvailable: false,
@@ -83,7 +90,7 @@ class AppStateManager {
   }
 
   setTool(tool: ToolType): void {
-    this.update({ activeTool: tool, selectedMarkupId: null, selectedMarkupType: null });
+    this.update({ activeTool: tool, selectedMarkupId: null, selectedMarkupType: null, selectedMarkupIds: [], selectedMarkupTypes: [] });
     this.emit('tool-change', tool);
   }
 
@@ -100,21 +107,44 @@ class AppStateManager {
 
   setPage(index: number): void {
     if (index < 0 || index >= this._state.totalPages) return;
-    this.update({ activePageIndex: index, selectedMarkupId: null, selectedMarkupType: null });
+    this.update({ activePageIndex: index, selectedMarkupId: null, selectedMarkupType: null, selectedMarkupIds: [], selectedMarkupTypes: [] });
     this.emit('page-change', index);
   }
 
   setSelection(id: string | null): void {
-    // selectedMarkupType is populated by the selection-change handler in main.ts
-    // (which has access to project data). Clear it here when deselecting.
-    if (!id) this.update({ selectedMarkupId: null, selectedMarkupType: null });
-    else this.update({ selectedMarkupId: id });
-    this.emit('selection-change', id);
+    if (!id) {
+      this.update({ selectedMarkupId: null, selectedMarkupType: null, selectedMarkupIds: [], selectedMarkupTypes: [] });
+    } else {
+      this.update({ selectedMarkupId: id, selectedMarkupIds: [id] });
+    }
+    this.emit('selection-change', id ? [id] : []);
+  }
+
+  /** Select multiple markups at once. main.ts will populate selectedMarkupTypes. */
+  setMultiSelection(ids: string[]): void {
+    if (ids.length === 0) {
+      this.setSelection(null);
+      return;
+    }
+    if (ids.length === 1) {
+      this.setSelection(ids[0]);
+      return;
+    }
+    this.update({ selectedMarkupId: null, selectedMarkupType: null, selectedMarkupIds: ids });
+    this.emit('selection-change', ids);
+  }
+
+  /** Called by main.ts after resolving the types of all selected markups */
+  setSelectionTypes(types: MarkupType[]): void {
+    this.update({
+      selectedMarkupTypes: types,
+      selectedMarkupType: types.length === 1 ? types[0] : null,
+    });
   }
 
   /** Called by main.ts after looking up the selected markup in the project */
   setSelectionType(type: MarkupType | null): void {
-    this.update({ selectedMarkupType: type });
+    this.update({ selectedMarkupType: type, selectedMarkupTypes: type ? [type] : [] });
   }
 
   setStyleProp<K extends keyof MarkupStyle>(key: K, value: MarkupStyle[K]): void {

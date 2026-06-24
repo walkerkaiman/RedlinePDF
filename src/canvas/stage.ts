@@ -1,6 +1,6 @@
 import Konva from 'konva';
 import type { Markup, PenMarkup, LineMarkup, ArrowMarkup, RectMarkup, EllipseMarkup, BoxMarkup, TextMarkup, MeasureLinearMarkup, MeasureRectMarkup, MeasurePolyMarkup, Point } from '../model/document.ts';
-import { pdfToKonva, pdfPointsToKonva, pdfRectToKonva } from '../geometry/transform.ts';
+import { pdfToKonva, pdfPointsToKonva, pdfRectToKonva, konvaPointsToPdf, konvaRectToPdf, konvaToPdf } from '../geometry/transform.ts';
 
 export interface KonvaStageManager {
   stage: Konva.Stage;
@@ -24,8 +24,15 @@ export interface KonvaStageManager {
   removeMarkupNode(id: string): void;
   /** Find node by markup id */
   findNode(id: string): Konva.Node | undefined;
-  /** Update an existing node's properties */
+  /** Update an existing node's style properties */
   updateMarkupNode(markup: Markup): void;
+  /**
+   * Bake the Konva Transformer's accumulated scale/position into the markup
+   * model coordinates and reset the node's transform to identity.
+   * Call this whenever transformend/dragend fires so the model stays in sync
+   * and exports correctly.
+   */
+  bakeTransform(markup: Markup): void;
   /** Clear all markup nodes */
   clearMarkups(): void;
   /** Get stage pointer position in konva (layer) space */
@@ -192,14 +199,16 @@ export function createMarkupNode(markup: Markup, pageHeightPts: number): Konva.N
       const m = markup as MeasureLinearMarkup;
       const p1 = pdfToKonva(m.x1, m.y1, pageHeightPts);
       const p2 = pdfToKonva(m.x2, m.y2, pageHeightPts);
-      const group = new Konva.Group({ name: 'markup', id: markup.id });
+      const group = new Konva.Group({ name: 'markup', id: markup.id, opacity: style.strokeOpacity ?? 1 });
+      const mColor = style.strokeColor ?? '#0077cc';
+      const mWidth = style.strokeWidth ?? 1.5;
 
       const line = new Konva.Line({
         points: [p1.x, p1.y, p2.x, p2.y],
-        stroke: '#0077cc', strokeWidth: 1.5, dash: [6, 3],
+        stroke: mColor, strokeWidth: mWidth, dash: [6, 3],
+        hitStrokeWidth: 12,
       });
 
-      // Tick marks
       const angle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
       const perp = angle + Math.PI / 2;
       const tickLen = 6;
@@ -207,29 +216,22 @@ export function createMarkupNode(markup: Markup, pageHeightPts: number): Konva.N
         points: [
           p1.x + tickLen * Math.cos(perp), p1.y + tickLen * Math.sin(perp),
           p1.x - tickLen * Math.cos(perp), p1.y - tickLen * Math.sin(perp),
-          ...([NaN, NaN]), // move
+          ...([NaN, NaN]),
           p2.x + tickLen * Math.cos(perp), p2.y + tickLen * Math.sin(perp),
           p2.x - tickLen * Math.cos(perp), p2.y - tickLen * Math.sin(perp),
         ],
-        stroke: '#0077cc', strokeWidth: 1.5,
+        stroke: mColor, strokeWidth: mWidth,
+        hitStrokeWidth: 12,
       });
 
       const label = new Konva.Text({
-        x: (p1.x + p2.x) / 2 + 6,
-        y: (p1.y + p2.y) / 2 - 16,
-        text: m.label,
-        fontSize: 11,
-        fontFamily: 'Arial',
-        fill: '#0077cc',
-        padding: 3,
+        x: (p1.x + p2.x) / 2 + 6, y: (p1.y + p2.y) / 2 - 16,
+        text: m.label, fontSize: 11, fontFamily: 'Arial', fill: mColor, padding: 3,
       });
       const labelBg = new Konva.Rect({
-        x: (p1.x + p2.x) / 2 + 3,
-        y: (p1.y + p2.y) / 2 - 19,
-        width: label.width() + 6,
-        height: label.height() + 6,
-        fill: 'rgba(255,255,255,0.85)',
-        cornerRadius: 2,
+        x: (p1.x + p2.x) / 2 + 3, y: (p1.y + p2.y) / 2 - 19,
+        width: label.width() + 6, height: label.height() + 6,
+        fill: 'rgba(255,255,255,0.85)', cornerRadius: 2,
       });
       group.add(line, ticks, labelBg, label);
       node = group;
@@ -239,23 +241,23 @@ export function createMarkupNode(markup: Markup, pageHeightPts: number): Konva.N
     case 'measure-rect': {
       const m = markup as MeasureRectMarkup;
       const r = pdfRectToKonva(m.x, m.y, m.width, m.height, pageHeightPts);
-      const group = new Konva.Group({ name: 'markup', id: markup.id });
+      const group = new Konva.Group({ name: 'markup', id: markup.id, opacity: style.strokeOpacity ?? 1 });
+      const mColor = style.strokeColor ?? '#0077cc';
+      const mWidth = style.strokeWidth ?? 1.5;
 
       const rect = new Konva.Rect({
         ...r,
-        stroke: '#0077cc', strokeWidth: 1.5, dash: [6, 3],
-        fill: 'rgba(0, 119, 204, 0.08)',
+        stroke: mColor, strokeWidth: mWidth, dash: [6, 3],
+        fill: hexWithOpacity(mColor, 0.08),
+        hitStrokeWidth: 12,
       });
       const label = new Konva.Text({
-        x: r.x + r.width / 2 - 40,
-        y: r.y + r.height / 2 - 10,
-        text: m.label,
-        fontSize: 11, fontFamily: 'Arial', fill: '#0077cc',
+        x: r.x + r.width / 2 - 40, y: r.y + r.height / 2 - 10,
+        text: m.label, fontSize: 11, fontFamily: 'Arial', fill: mColor,
         align: 'center', width: 80,
       });
       const labelBg = new Konva.Rect({
-        x: r.x + r.width / 2 - 43,
-        y: r.y + r.height / 2 - 13,
+        x: r.x + r.width / 2 - 43, y: r.y + r.height / 2 - 13,
         width: 86, height: label.height() + 6,
         fill: 'rgba(255,255,255,0.85)', cornerRadius: 2,
       });
@@ -266,7 +268,9 @@ export function createMarkupNode(markup: Markup, pageHeightPts: number): Konva.N
 
     case 'measure-poly': {
       const m = markup as MeasurePolyMarkup;
-      const group = new Konva.Group({ name: 'markup', id: markup.id });
+      const group = new Konva.Group({ name: 'markup', id: markup.id, opacity: style.strokeOpacity ?? 1 });
+      const mColor = style.strokeColor ?? '#0077cc';
+      const mWidth = style.strokeWidth ?? 1.5;
 
       if (m.points.length >= 2) {
         const konvaPoints: number[] = [];
@@ -277,15 +281,15 @@ export function createMarkupNode(markup: Markup, pageHeightPts: number): Konva.N
         const poly = new Konva.Line({
           points: konvaPoints,
           closed: m.points.length >= 3,
-          stroke: '#0077cc', strokeWidth: 1.5, dash: [6, 3],
-          fill: m.points.length >= 3 ? 'rgba(0,119,204,0.08)' : undefined,
+          stroke: mColor, strokeWidth: mWidth, dash: [6, 3],
+          fill: m.points.length >= 3 ? hexWithOpacity(mColor, 0.08) : undefined,
+          hitStrokeWidth: 12,
         });
         group.add(poly);
 
-        // Vertex dots
         for (const p of m.points) {
           const kp = pdfToKonva(p.x, p.y, pageHeightPts);
-          group.add(new Konva.Circle({ x: kp.x, y: kp.y, radius: 4, fill: '#0077cc' }));
+          group.add(new Konva.Circle({ x: kp.x, y: kp.y, radius: 4, fill: mColor }));
         }
 
         if (m.points.length >= 3) {
@@ -294,7 +298,7 @@ export function createMarkupNode(markup: Markup, pageHeightPts: number): Konva.N
           const kc = pdfToKonva(cx, cy, pageHeightPts);
           const label = new Konva.Text({
             x: kc.x - 40, y: kc.y - 10,
-            text: m.label, fontSize: 11, fontFamily: 'Arial', fill: '#0077cc',
+            text: m.label, fontSize: 11, fontFamily: 'Arial', fill: mColor,
             align: 'center', width: 80,
           });
           const labelBg = new Konva.Rect({
@@ -404,12 +408,131 @@ export function createStage(containerId: string, width: number, height: number, 
 
     updateMarkupNode(markup: Markup): void {
       const existing = stage.findOne(`#${markup.id}`);
-      if (existing) {
-        existing.destroy();
-      }
+      // Preserve the Konva transform so that if bakeTransform was not called
+      // (e.g. for unsupported types), a style-only rebuild doesn't snap the
+      // shape back to its un-scaled model coordinates.
+      const saved = existing
+        ? { x: existing.x(), y: existing.y(), scaleX: existing.scaleX(), scaleY: existing.scaleY(), rotation: existing.rotation() }
+        : null;
+      if (existing) existing.destroy();
       const newNode = createMarkupNode(markup, _pageHeightPts);
+      if (saved) newNode.setAttrs(saved);
       markupLayer.add(newNode as Konva.Shape);
       markupLayer.draw();
+    },
+
+    bakeTransform(markup: Markup): void {
+      const node = stage.findOne(`#${markup.id}`);
+      if (!node) return;
+
+      const tx = node.x();
+      const ty = node.y();
+      const sx = node.scaleX();
+      const sy = node.scaleY();
+
+      if (tx === 0 && ty === 0 && Math.abs(sx - 1) < 1e-9 && Math.abs(sy - 1) < 1e-9) return;
+
+      const h = _pageHeightPts;
+
+      switch (markup.type) {
+        case 'pen': {
+          const m = markup as PenMarkup;
+          const line = node as Konva.Line;
+          const raw = line.points();
+          const baked: number[] = [];
+          for (let i = 0; i < raw.length; i += 2) {
+            baked.push(tx + raw[i] * sx, ty + raw[i + 1] * sy);
+          }
+          m.points = konvaPointsToPdf(baked, h);
+          line.x(0); line.y(0); line.scaleX(1); line.scaleY(1); line.points(baked);
+          break;
+        }
+        case 'line':
+        case 'arrow': {
+          const m = markup as LineMarkup | ArrowMarkup;
+          const line = node as Konva.Line;
+          const raw = line.points();
+          const b = [tx + raw[0] * sx, ty + raw[1] * sy, tx + raw[2] * sx, ty + raw[3] * sy];
+          const p1 = konvaToPdf(b[0], b[1], h);
+          const p2 = konvaToPdf(b[2], b[3], h);
+          m.x1 = p1.x; m.y1 = p1.y; m.x2 = p2.x; m.y2 = p2.y;
+          line.x(0); line.y(0); line.scaleX(1); line.scaleY(1); line.points(b);
+          break;
+        }
+        case 'rect':
+        case 'box': {
+          const m = markup as RectMarkup | BoxMarkup;
+          const rect = node as Konva.Rect;
+          const kw = rect.width() * sx;
+          const kh = rect.height() * sy;
+          const pdf = konvaRectToPdf(tx, ty, kw, kh, h);
+          m.x = pdf.x; m.y = pdf.y; m.width = pdf.width; m.height = pdf.height;
+          rect.width(kw); rect.height(kh); rect.scaleX(1); rect.scaleY(1);
+          break;
+        }
+        case 'ellipse': {
+          const m = markup as EllipseMarkup;
+          const ellipse = node as Konva.Ellipse;
+          const bRx = ellipse.radiusX() * sx;
+          const bRy = ellipse.radiusY() * sy;
+          const ctr = konvaToPdf(tx, ty, h);
+          m.cx = ctr.x; m.cy = ctr.y; m.rx = bRx; m.ry = bRy;
+          ellipse.radiusX(bRx); ellipse.radiusY(bRy); ellipse.scaleX(1); ellipse.scaleY(1);
+          break;
+        }
+        case 'text': {
+          const m = markup as TextMarkup;
+          const group = node as Konva.Group;
+          const bgRect = group.findOne<Konva.Rect>('Rect');
+          const kw = (bgRect ? bgRect.width() : m.width) * sx;
+          const kh = (bgRect ? bgRect.height() : m.height) * sy;
+          const pdf = konvaRectToPdf(tx, ty, kw, kh, h);
+          m.x = pdf.x; m.y = pdf.y; m.width = pdf.width; m.height = pdf.height;
+          if (bgRect) { bgRect.width(kw); bgRect.height(kh); }
+          const textShape = group.findOne<Konva.Text>('Text');
+          if (textShape) { textShape.width(Math.max(1, kw - 8)); textShape.height(Math.max(1, kh - 8)); }
+          group.scaleX(1); group.scaleY(1);
+          break;
+        }
+        case 'measure-linear': {
+          const m = markup as MeasureLinearMarkup;
+          // Bake translation into PDF coords. Scale is ignored (it would
+          // invalidate the pre-computed label string).
+          if (tx !== 0 || ty !== 0) {
+            m.x1 += tx; m.y1 -= ty;
+            m.x2 += tx; m.y2 -= ty;
+            (node as Konva.Group).getChildren().forEach(c => { c.x(c.x() + tx); c.y(c.y() + ty); });
+            node.x(0); node.y(0);
+          }
+          node.scaleX(1); node.scaleY(1);
+          break;
+        }
+        case 'measure-rect': {
+          const m = markup as MeasureRectMarkup;
+          if (tx !== 0 || ty !== 0) {
+            m.x += tx; m.y -= ty;
+            (node as Konva.Group).getChildren().forEach(c => { c.x(c.x() + tx); c.y(c.y() + ty); });
+            node.x(0); node.y(0);
+          }
+          node.scaleX(1); node.scaleY(1);
+          break;
+        }
+        case 'measure-poly': {
+          const m = markup as MeasurePolyMarkup;
+          if (tx !== 0 || ty !== 0) {
+            m.points.forEach(p => { p.x += tx; p.y -= ty; });
+            (node as Konva.Group).getChildren().forEach(c => { c.x(c.x() + tx); c.y(c.y() + ty); });
+            node.x(0); node.y(0);
+          }
+          node.scaleX(1); node.scaleY(1);
+          break;
+        }
+        default:
+          node.x(0); node.y(0); node.scaleX(1); node.scaleY(1);
+          break;
+      }
+
+      stage.batchDraw();
     },
 
     clearMarkups(): void {

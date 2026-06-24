@@ -2,14 +2,14 @@ import './style.css';
 import { appState } from './state/appState.ts';
 import { loadPdf, fitWidthScale } from './pdf/renderer.ts';
 import { createStage } from './canvas/stage.ts';
-import { initToolbar, showCanvas, updateCursorStatus, updateScaleStatus } from './ui/toolbar.ts';
+import { initToolbar, showCanvas, updateCursorStatus } from './ui/toolbar.ts';
 import { initPropertiesPanel } from './ui/properties.ts';
 import { showModal, showExportOptionsDialog } from './ui/modal.ts';
 import { autosaveProject, loadAutosave, exportProjectFile, importProjectFile, saveWithFilePicker, openSaveFilePicker, writeFileHandle, triggerDownload } from './storage/projectStore.ts';
 import { isTauri, openPdfFileNative, saveFileNative, openProjectFileNative } from './tauri/integration.ts';
 import { exportRedlinedPdf } from './export/exportPdf.ts';
 import { computeScale } from './measure/scale.ts';
-import { formatScaleLabel, formatLinear, formatArea } from './measure/units.ts';
+import { formatLinear, formatArea } from './measure/units.ts';
 import { konvaToPdf, distance, polygonArea, polygonPerimeter } from './geometry/transform.ts';
 import type { Markup, PageData, ProjectData } from './model/document.ts';
 import { DEFAULT_PAGE_SCALE, DEFAULT_UNITS, generateId } from './model/document.ts';
@@ -84,9 +84,14 @@ function snapshotMarkups(): void {
 function undo(): void {
   const page = currentPage();
   if (!page || undoStack.length === 0) return;
+  // Clear selection BEFORE destroying nodes, otherwise the Transformer keeps
+  // rendering handles that point to the (about-to-be-destroyed) Konva nodes.
+  if (activeTool instanceof SelectTool) (activeTool as SelectTool).clearSelection();
+  else appState.setSelection(null);
   redoStack.push(JSON.stringify(page.markups));
   page.markups = JSON.parse(undoStack.pop()!);
   rebuildMarkupLayer();
+  stageManager?.draw();
   appState.update({ undoAvailable: undoStack.length > 0, redoAvailable: redoStack.length > 0 });
   scheduleAutosave();
 }
@@ -94,9 +99,12 @@ function undo(): void {
 function redo(): void {
   const page = currentPage();
   if (!page || redoStack.length === 0) return;
+  if (activeTool instanceof SelectTool) (activeTool as SelectTool).clearSelection();
+  else appState.setSelection(null);
   undoStack.push(JSON.stringify(page.markups));
   page.markups = JSON.parse(redoStack.pop()!);
   rebuildMarkupLayer();
+  stageManager?.draw();
   appState.update({ undoAvailable: undoStack.length > 0, redoAvailable: redoStack.length > 0 });
   scheduleAutosave();
 }
@@ -121,6 +129,18 @@ function addMarkup(markup: Markup): void {
   snapshotMarkups();
   page.markups.push(markup);
   stageManager?.addMarkupNode(markup);
+
+  // Auto-switch to select and highlight the new markup so the user can
+  // immediately edit its properties without a separate click.
+  // setTool must come first so SelectTool.activate() runs (and calls
+  // draggable(true) on the new node) before we attach the Transformer.
+  appState.setTool('select');
+  appState.setSelection(markup.id);
+  if (activeTool instanceof SelectTool) {
+    (activeTool as SelectTool).refreshTransformerForNode(markup.id);
+  }
+
+  scheduleAutosave();
 }
 
 function removeMarkupById(id: string): void {
@@ -132,6 +152,39 @@ function removeMarkupById(id: string): void {
   page.markups.splice(idx, 1);
   stageManager?.removeMarkupNode(id);
   appState.setSelection(null);
+}
+
+function removeSelectedMarkups(): void {
+  const ids = appState.state.selectedMarkupIds;
+  if (ids.length === 0) return;
+  const page = currentPage();
+  if (!page) return;
+  snapshotMarkups();
+  for (const id of ids) {
+    const idx = page.markups.findIndex(m => m.id === id);
+    if (idx !== -1) page.markups.splice(idx, 1);
+    stageManager?.removeMarkupNode(id);
+  }
+  appState.setSelection(null);
+}
+
+/**
+ * Returns true if a style property key is applicable to a given markup type.
+ * Used when propagating a style change to multiple selected markups so we only
+ * update markups that actually use the property.
+ */
+function styleKeyAppliesTo(key: string, type: import('./model/document.ts').MarkupType): boolean {
+  const strokeKeys = ['strokeColor', 'strokeWidth', 'strokeOpacity'];
+  const fillKeys = ['fillColor', 'fillOpacity'];
+  const textKeys = ['textColor', 'bgColor', 'bgOpacity', 'fontFamily', 'fontSize', 'bold', 'italic'];
+  const strokeTypes: import('./model/document.ts').MarkupType[] = ['pen', 'line', 'arrow', 'rect', 'ellipse', 'box', 'measure-linear', 'measure-rect', 'measure-poly'];
+  const fillTypes: import('./model/document.ts').MarkupType[] = ['box'];
+  const textTypes: import('./model/document.ts').MarkupType[] = ['text'];
+
+  if (strokeKeys.includes(key)) return strokeTypes.includes(type);
+  if (fillKeys.includes(key)) return fillTypes.includes(type);
+  if (textKeys.includes(key)) return textTypes.includes(type);
+  return true; // unknown key — let it through
 }
 
 function updateMarkup(id: string, partial: Partial<Markup>): void {
@@ -238,7 +291,6 @@ async function renderPage(pageIndex: number): Promise<void> {
   page?.markups.forEach(m => stageManager!.addMarkupNode(m));
 
   activateCurrentTool();
-  updateScaleInfo();
 }
 
 let wheelDebounce: ReturnType<typeof setTimeout> | null = null;
@@ -288,24 +340,21 @@ function setupStageEvents(): void {
     updateCursorStatus(pdfPos.x, pdfPos.y);
   });
 
-  // Markup transform sync (from select tool)
+  // Snapshot the markup state just before a drag/resize starts so undo restores it.
+  appState.on('markup-transform-start', () => {
+    snapshotMarkups();
+  });
+
+  // Markup transform sync (from select tool's transformend / dragend)
   appState.on('markup-transform', (data) => {
-    const { id } = data as { id: string; node: import('konva').default.Node };
-    const node = stageManager?.findNode(id);
-    if (!node) return;
-    // Re-sync the node's new position/size back to the model
+    const { id } = data as { id: string };
     const page = currentPage();
     const markup = page?.markups.find(m => m.id === id);
-    if (!markup) return;
-    // For simple shapes, update x/y from node position
-    const x = node.x();
-    const y = node.y();
-    const h = stageManager!.pageHeightPts;
-    if ('x' in markup && 'y' in markup) {
-      const pdfPos = konvaToPdf(x, y, h);
-      (markup as { x: number; y: number }).x = pdfPos.x;
-      (markup as { x: number; y: number }).y = pdfPos.y;
-    }
+    if (!markup || !stageManager) return;
+    // Bake the Konva node's accumulated scale/translation back into the markup's
+    // PDF-space coordinates and reset the node to identity scale.  This keeps
+    // the model as the source of truth so exports and re-renders are correct.
+    stageManager.bakeTransform(markup);
     scheduleAutosave();
   });
 }
@@ -356,14 +405,6 @@ function activateCurrentTool(): void {
 
 // ── Scale helpers ─────────────────────────────────────────────────────────────
 
-function updateScaleInfo(): void {
-  const page = currentPage();
-  if (!page) { updateScaleStatus('Not calibrated'); return; }
-  const label = page.scale.calibrated
-    ? formatScaleLabel(page.scale.pointsPerUnit, appState.state.units.linearUnit)
-    : 'Not calibrated';
-  updateScaleStatus(label);
-}
 
 /**
  * Recompute measurement labels on the current page using current scale + units.
@@ -576,8 +617,7 @@ function setupKeyboardShortcuts(): void {
     if (ctrl && e.key === 'e') { e.preventDefault(); document.getElementById('btn-export-pdf')?.click(); return; }
 
     if (e.key === 'Delete' || e.key === 'Backspace') {
-      const sel = appState.state.selectedMarkupId;
-      if (sel) removeMarkupById(sel);
+      removeSelectedMarkups();
       return;
     }
 
@@ -650,11 +690,9 @@ function setupStateListeners(): void {
     redoStack.length = 0;
     appState.update({ undoAvailable: false, redoAvailable: false });
     await renderPage(pageIndex as number);
-    updateScaleInfo();
   });
 
   appState.on('units-change', () => {
-    updateScaleInfo();
     recalculateMeasureLabels(); // updates model labels, then rebuilds layer
     if (!currentPage()?.scale.calibrated) rebuildMarkupLayer(); // rebuild even if no labels changed
   });
@@ -662,7 +700,6 @@ function setupStateListeners(): void {
   appState.on('scale-set', (data) => {
     const { pageIndex, scale } = data as { pageIndex: number; scale: import('./model/document.ts').PageScale };
     ensurePage(pageIndex).scale = scale;
-    updateScaleInfo();
     recalculateMeasureLabels();
     if (!pendingMeasureTool) rebuildMarkupLayer(); // recalculate already rebuilds if changed
     scheduleAutosave();
@@ -676,43 +713,50 @@ function setupStateListeners(): void {
     }
   });
 
-  // When a markup is selected, load its style into activeStyle and tell the
-  // properties panel what type it is so it renders the right controls.
-  appState.on('selection-change', (id) => {
-    if (!id) return; // deselect path: appState.setSelection already cleared type
+  // When a markup (or markups) is selected, resolve types and pre-fill activeStyle.
+  appState.on('selection-change', (raw) => {
+    const ids = raw as string[];
+    if (!ids || ids.length === 0) return; // deselect already cleared state
     const page = currentPage();
     if (!page) return;
-    const markup = page.markups.find((m) => m.id === (id as string));
-    if (!markup) return;
-    // Merge the markup's style on top of the global defaults so the panel is
-    // pre-filled with the actual values of the selected object.
-    appState.update({
-      selectedMarkupType: markup.type,
-      activeStyle: { ...appState.state.activeStyle, ...markup.style },
-    });
+    const markups = ids.map(id => page.markups.find(m => m.id === id)).filter(Boolean) as import('./model/document.ts').Markup[];
+    if (markups.length === 0) return;
+    const types = markups.map(m => m.type);
+    appState.setSelectionTypes(types);
+    // Pre-fill style from the primary (first) markup so sliders show real values.
+    appState.update({ activeStyle: { ...appState.state.activeStyle, ...markups[0].style } });
   });
 
   // When a style property changes while something is selected, apply it to
-  // that markup in the model and update the Konva node immediately.
+  // all selected markups whose type supports that property.
   appState.on('style-change', (raw) => {
     const { key, value } = raw as { key: string; value: unknown };
-    const sel = appState.state.selectedMarkupId;
-    if (!sel) return; // no selection → only the global default was updated
+    const ids = appState.state.selectedMarkupIds;
+    if (ids.length === 0) return; // no selection → only the global default was updated
     const page = currentPage();
     if (!page) return;
-    const markup = page.markups.find((m) => m.id === sel);
-    if (!markup) return;
-    (markup.style as Record<string, unknown>)[key] = value;
-    stageManager?.updateMarkupNode(markup);
+    let anyUpdated = false;
+    for (const id of ids) {
+      const markup = page.markups.find(m => m.id === id);
+      if (!markup) continue;
+      if (!styleKeyAppliesTo(key, markup.type)) continue;
+      (markup.style as Record<string, unknown>)[key] = value;
+      stageManager?.updateMarkupNode(markup);
+      anyUpdated = true;
+    }
+    if (!anyUpdated) return;
     stageManager?.draw();
+    // Re-attach the Transformer to the rebuilt Konva nodes.
+    if (activeTool instanceof SelectTool) {
+      (activeTool as SelectTool).refreshTransformerForNodes(ids);
+    }
     scheduleAutosave();
   });
 
   appState.on('cmd-undo', () => undo());
   appState.on('cmd-redo', () => redo());
   appState.on('cmd-delete', () => {
-    const sel = appState.state.selectedMarkupId;
-    if (sel) removeMarkupById(sel);
+    removeSelectedMarkups();
   });
   appState.on('cmd-fit-width', async () => {
     if (!pdfRenderer || !stageManager) return;
@@ -763,8 +807,6 @@ async function init(): Promise<void> {
     if (saved && saved.project.pdfFileName) {
       await loadPdfFromProject(saved.project, saved.pdfBytes);
       showToast(`Previous session restored: "${saved.project.pdfFileName}"`, 'info', 5000);
-      // Scale and markups are now live — update the scale status for page 0
-      updateScaleInfo();
     }
   } catch {
     // No autosave available or corrupt — start fresh (expected on first run)
