@@ -6,6 +6,9 @@ export interface ToolContext {
   stageManager: KonvaStageManager;
   onMarkupAdd: (markup: import('../model/document.ts').Markup) => void;
   onMarkupUpdate: (id: string, partial: Partial<import('../model/document.ts').Markup>) => void;
+  onCountAdd: (markup: import('../model/document.ts').CountMarkup) => void;
+  getActiveCountCategory: () => import('../model/document.ts').CountCategory | null;
+  getCountSymbolSize: () => number;
   getStyle: () => import('../model/document.ts').MarkupStyle;
   getPageHeightPts: () => number;
   getPageIndex: () => number;

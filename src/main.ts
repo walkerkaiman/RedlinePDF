@@ -28,9 +28,12 @@ import { ScaleSetTool } from './tools/scaleSetTool.ts';
 import { MeasureLinearTool } from './tools/measureLinearTool.ts';
 import { MeasureRectTool } from './tools/measureRectTool.ts';
 import { MeasurePolyTool } from './tools/measurePolyTool.ts';
+import { CountTool } from './tools/countTool.ts';
 import type { BaseTool } from './tools/baseTool.ts';
 import type { ToolContext } from './tools/baseTool.ts';
 import type { ToolType } from './state/appState.ts';
+import type { CountCategory, CountMarkup, CountLegendMarkup } from './model/document.ts';
+import { COUNT_SYMBOLS, COUNT_COLORS, generateId as _generateId } from './model/document.ts';
 
 // ── App state ─────────────────────────────────────────────────────────────────
 
@@ -75,24 +78,32 @@ function showToast(message: string, type: 'info' | 'warn' = 'info', duration = 4
 function snapshotMarkups(): void {
   const page = currentPage();
   if (!page) return;
-  undoStack.push(JSON.stringify(page.markups));
+  undoStack.push(JSON.stringify({ markups: page.markups, countCategories: page.countCategories }));
   redoStack.length = 0;
   appState.update({ undoAvailable: undoStack.length > 0, redoAvailable: false });
   scheduleAutosave();
 }
 
+function restoreSnapshot(snapshot: string, page: import('./model/document.ts').PageData): void {
+  const { markups, countCategories } = JSON.parse(snapshot) as {
+    markups: Markup[];
+    countCategories: CountCategory[];
+  };
+  page.markups = markups;
+  page.countCategories = countCategories ?? [];
+}
+
 function undo(): void {
   const page = currentPage();
   if (!page || undoStack.length === 0) return;
-  // Clear selection BEFORE destroying nodes, otherwise the Transformer keeps
-  // rendering handles that point to the (about-to-be-destroyed) Konva nodes.
   if (activeTool instanceof SelectTool) (activeTool as SelectTool).clearSelection();
   else appState.setSelection(null);
-  redoStack.push(JSON.stringify(page.markups));
-  page.markups = JSON.parse(undoStack.pop()!);
+  redoStack.push(JSON.stringify({ markups: page.markups, countCategories: page.countCategories }));
+  restoreSnapshot(undoStack.pop()!, page);
   rebuildMarkupLayer();
   stageManager?.draw();
   appState.update({ undoAvailable: undoStack.length > 0, redoAvailable: redoStack.length > 0 });
+  pushCountSummary();
   scheduleAutosave();
 }
 
@@ -101,11 +112,12 @@ function redo(): void {
   if (!page || redoStack.length === 0) return;
   if (activeTool instanceof SelectTool) (activeTool as SelectTool).clearSelection();
   else appState.setSelection(null);
-  undoStack.push(JSON.stringify(page.markups));
-  page.markups = JSON.parse(redoStack.pop()!);
+  undoStack.push(JSON.stringify({ markups: page.markups, countCategories: page.countCategories }));
+  restoreSnapshot(redoStack.pop()!, page);
   rebuildMarkupLayer();
   stageManager?.draw();
   appState.update({ undoAvailable: undoStack.length > 0, redoAvailable: redoStack.length > 0 });
+  pushCountSummary();
   scheduleAutosave();
 }
 
@@ -117,9 +129,11 @@ function currentPage(): PageData | null {
 
 function ensurePage(index: number): PageData {
   while (project.pages.length <= index) {
-    project.pages.push({ index: project.pages.length, scale: { ...DEFAULT_PAGE_SCALE }, markups: [] });
+    project.pages.push({ index: project.pages.length, scale: { ...DEFAULT_PAGE_SCALE }, markups: [], countCategories: [] });
   }
-  return project.pages[index];
+  const page = project.pages[index];
+  page.countCategories ??= [];
+  return page;
 }
 
 // ── Markup operations ─────────────────────────────────────────────────────────
@@ -160,12 +174,20 @@ function removeSelectedMarkups(): void {
   const page = currentPage();
   if (!page) return;
   snapshotMarkups();
+  let needsLegendRefresh = false;
   for (const id of ids) {
     const idx = page.markups.findIndex(m => m.id === id);
-    if (idx !== -1) page.markups.splice(idx, 1);
+    if (idx !== -1) {
+      if (page.markups[idx].type === 'count') needsLegendRefresh = true;
+      page.markups.splice(idx, 1);
+    }
     stageManager?.removeMarkupNode(id);
   }
   appState.setSelection(null);
+  if (needsLegendRefresh) {
+    refreshLegend(page);
+    pushCountSummary();
+  }
 }
 
 /**
@@ -205,6 +227,163 @@ function rebuildMarkupLayer(): void {
   page.markups.forEach(m => stageManager!.addMarkupNode(m));
 }
 
+// ── Count helpers ─────────────────────────────────────────────────────────────
+
+function pushCountSummary(): void {
+  const page = currentPage();
+  const cats = page?.countCategories ?? [];
+  const stamps = page?.markups.filter(m => m.type === 'count') as CountMarkup[] ?? [];
+  const summary = cats.map(cat => ({
+    id: cat.id,
+    name: cat.name,
+    symbol: cat.symbol,
+    color: cat.color,
+    count: stamps.filter(s => s.categoryId === cat.id).length,
+  }));
+  appState.update({ countSummary: summary, countSymbolSize: page?.countSymbolSize ?? 10 });
+  appState.emit('count-summary-change', summary);
+}
+
+function setCountSymbolSize(size: number): void {
+  const page = currentPage();
+  if (!page) return;
+  page.countSymbolSize = size;
+  const stamps = page.markups.filter(m => m.type === 'count') as CountMarkup[];
+  stamps.forEach(s => {
+    s.size = size;
+    stageManager?.updateMarkupNode(s);
+  });
+  appState.update({ countSymbolSize: size });
+  scheduleAutosave();
+}
+
+function ensureLegend(page: import('./model/document.ts').PageData): void {
+  const hasLegend = page.markups.some(m => m.type === 'count-legend');
+  if (hasLegend || page.countCategories.length === 0) return;
+  const pw = stageManager?.pageWidthPts ?? 612;
+  const ph = stageManager?.pageHeightPts ?? 792;
+  const legend: CountLegendMarkup = {
+    id: _generateId(),
+    type: 'count-legend',
+    pageIndex: page.index,
+    style: {},
+    x: pw - 170,
+    y: ph - 20,
+    title: 'Count Legend',
+    rows: [],
+  };
+  page.markups.push(legend);
+  stageManager?.addMarkupNode(legend);
+}
+
+function refreshLegend(page: import('./model/document.ts').PageData): void {
+  const stamps = page.markups.filter(m => m.type === 'count') as CountMarkup[];
+  const legend = page.markups.find(m => m.type === 'count-legend') as CountLegendMarkup | undefined;
+
+  if (page.countCategories.length === 0) {
+    if (legend) {
+      page.markups.splice(page.markups.indexOf(legend), 1);
+      stageManager?.removeMarkupNode(legend.id);
+    }
+    return;
+  }
+
+  if (!legend) {
+    ensureLegend(page);
+    refreshLegend(page);
+    return;
+  }
+
+  legend.rows = page.countCategories.map(cat => ({
+    label: cat.name,
+    symbol: cat.symbol,
+    color: cat.color,
+    count: stamps.filter(s => s.categoryId === cat.id).length,
+  }));
+
+  stageManager?.updateMarkupNode(legend);
+}
+
+function addCountStamp(markup: CountMarkup): void {
+  const page = ensurePage(markup.pageIndex);
+  snapshotMarkups();
+  page.markups.push(markup);
+  stageManager?.addMarkupNode(markup);
+  refreshLegend(page);
+  pushCountSummary();
+  scheduleAutosave();
+}
+
+function addCountCategory(): void {
+  const page = currentPage();
+  if (!page) return;
+  snapshotMarkups();
+  const idx = page.countCategories.length;
+  const cat: CountCategory = {
+    id: _generateId(),
+    name: `Count ${idx + 1}`,
+    symbol: COUNT_SYMBOLS[idx % COUNT_SYMBOLS.length],
+    color: COUNT_COLORS[idx % COUNT_COLORS.length],
+  };
+  page.countCategories.push(cat);
+  ensureLegend(page);
+  refreshLegend(page);
+  appState.setActiveCountCategory(cat.id);
+  pushCountSummary();
+  scheduleAutosave();
+}
+
+function renameCountCategory(id: string, name: string): void {
+  const page = currentPage();
+  const cat = page?.countCategories.find(c => c.id === id);
+  if (!cat) return;
+  cat.name = name;
+  const stamps = page!.markups.filter(m => m.type === 'count' && (m as CountMarkup).categoryId === id) as CountMarkup[];
+  stamps.forEach(s => stageManager?.updateMarkupNode(s));
+  refreshLegend(page!);
+  pushCountSummary();
+  scheduleAutosave();
+}
+
+function setCountCategoryColor(id: string, color: string): void {
+  const page = currentPage();
+  const cat = page?.countCategories.find(c => c.id === id);
+  if (!cat) return;
+  cat.color = color;
+  const stamps = page!.markups.filter(m => m.type === 'count' && (m as CountMarkup).categoryId === id) as CountMarkup[];
+  stamps.forEach(s => { s.color = color; s.style.strokeColor = color; stageManager?.updateMarkupNode(s); });
+  refreshLegend(page!);
+  pushCountSummary();
+  scheduleAutosave();
+}
+
+function setCountCategorySymbol(id: string, symbol: import('./model/document.ts').CountSymbol): void {
+  const page = currentPage();
+  const cat = page?.countCategories.find(c => c.id === id);
+  if (!cat) return;
+  cat.symbol = symbol;
+  const stamps = page!.markups.filter(m => m.type === 'count' && (m as CountMarkup).categoryId === id) as CountMarkup[];
+  stamps.forEach(s => { s.symbol = symbol; stageManager?.updateMarkupNode(s); });
+  refreshLegend(page!);
+  pushCountSummary();
+  scheduleAutosave();
+}
+
+function deleteCountCategory(id: string): void {
+  const page = currentPage();
+  if (!page) return;
+  snapshotMarkups();
+  page.countCategories = page.countCategories.filter(c => c.id !== id);
+  const toRemove = page.markups.filter(m => m.type === 'count' && (m as CountMarkup).categoryId === id);
+  toRemove.forEach(m => { page.markups.splice(page.markups.indexOf(m), 1); stageManager?.removeMarkupNode(m.id); });
+  if (appState.state.activeCountCategoryId === id) {
+    appState.setActiveCountCategory(page.countCategories[0]?.id ?? null);
+  }
+  refreshLegend(page);
+  pushCountSummary();
+  scheduleAutosave();
+}
+
 // ── Autosave ──────────────────────────────────────────────────────────────────
 
 let autosaveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -235,6 +414,7 @@ async function loadPdfFile(bytes: Uint8Array, fileName: string): Promise<void> {
       index: i,
       scale: { ...DEFAULT_PAGE_SCALE },
       markups: [],
+      countCategories: [],
     })),
   };
 
@@ -366,6 +546,13 @@ function buildToolContext(): ToolContext {
     stageManager: stageManager!,
     onMarkupAdd: (markup) => addMarkup(markup),
     onMarkupUpdate: (id, partial) => updateMarkup(id, partial as Partial<Markup>),
+    onCountAdd: (markup) => addCountStamp(markup),
+    getActiveCountCategory: () => {
+      const page = currentPage();
+      const id = appState.state.activeCountCategoryId;
+      return page?.countCategories.find(c => c.id === id) ?? null;
+    },
+    getCountSymbolSize: () => currentPage()?.countSymbolSize ?? 10,
     getStyle: () => appState.state.activeStyle,
     getPageHeightPts: () => stageManager?.pageHeightPts ?? 792,
     getPageIndex: () => appState.state.activePageIndex,
@@ -392,6 +579,7 @@ function createTool(type: ToolType): BaseTool | null {
     case 'measure-linear': return new MeasureLinearTool(ctx);
     case 'measure-rect':   return new MeasureRectTool(ctx);
     case 'measure-poly':   return new MeasurePolyTool(ctx);
+    case 'count':          return new CountTool(ctx);
     default: return null;
   }
 }
@@ -578,6 +766,8 @@ function setupFileInputs(): void {
 
 async function loadPdfFromProject(p: ProjectData, b: Uint8Array): Promise<void> {
   project = p;
+  // Normalize pages from older project files that predate countCategories
+  project.pages.forEach(pg => { pg.countCategories ??= []; });
   pdfBytes = b;
   if (pdfRenderer) { pdfRenderer.destroy(); pdfRenderer = null; }
   stageManager?.stage.destroy();
@@ -598,6 +788,9 @@ async function loadPdfFromProject(p: ProjectData, b: Uint8Array): Promise<void> 
 
   showCanvas(true);
   await renderPage(0);
+  pushCountSummary();
+  const firstPage = currentPage();
+  if (firstPage && firstPage.countCategories.length > 0) refreshLegend(firstPage);
 }
 
 // ── Keyboard shortcuts ────────────────────────────────────────────────────────
@@ -626,7 +819,7 @@ function setupKeyboardShortcuts(): void {
       const toolKeys: Record<string, ToolType> = {
         'v': 'select', 'h': 'pan', 'p': 'pen', 'l': 'line', 'a': 'arrow',
         'r': 'rect', 'e': 'ellipse', 'b': 'box', 't': 'text',
-        's': 'scale-set', 'm': 'measure-linear',
+        's': 'scale-set', 'm': 'measure-linear', 'c': 'count',
       };
       if (e.shiftKey) {
         if (e.key === 'R') appState.setTool('measure-rect');
@@ -690,6 +883,9 @@ function setupStateListeners(): void {
     redoStack.length = 0;
     appState.update({ undoAvailable: false, redoAvailable: false });
     await renderPage(pageIndex as number);
+    pushCountSummary();
+    const pg = currentPage();
+    if (pg && pg.countCategories.length > 0) refreshLegend(pg);
   });
 
   appState.on('units-change', () => {
@@ -757,6 +953,32 @@ function setupStateListeners(): void {
   appState.on('cmd-redo', () => redo());
   appState.on('cmd-delete', () => {
     removeSelectedMarkups();
+  });
+
+  appState.on('cmd-count-add-category', () => addCountCategory());
+  appState.on('cmd-count-rename', (data) => {
+    const { id, name } = data as { id: string; name: string };
+    renameCountCategory(id, name);
+  });
+  appState.on('cmd-count-set-color', (data) => {
+    const { id, color } = data as { id: string; color: string };
+    setCountCategoryColor(id, color);
+  });
+  appState.on('cmd-count-set-symbol', (data) => {
+    const { id, symbol } = data as { id: string; symbol: import('./model/document.ts').CountSymbol };
+    setCountCategorySymbol(id, symbol);
+  });
+  appState.on('cmd-count-delete', (data) => {
+    const { id } = data as { id: string };
+    deleteCountCategory(id);
+  });
+  appState.on('cmd-count-set-active', (data) => {
+    const { id } = data as { id: string };
+    appState.setActiveCountCategory(id);
+  });
+  appState.on('cmd-count-set-size', (data) => {
+    const { size } = data as { size: number };
+    setCountSymbolSize(size);
   });
   appState.on('cmd-fit-width', async () => {
     if (!pdfRenderer || !stageManager) return;

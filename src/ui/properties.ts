@@ -1,6 +1,7 @@
 import { appState } from '../state/appState.ts';
 import { createColorPicker } from './colorPicker.ts';
 import type { MarkupStyle, MarkupType } from '../model/document.ts';
+import { COUNT_SYMBOLS } from '../model/document.ts';
 
 /**
  * Properties panel on the right side.
@@ -10,28 +11,52 @@ import type { MarkupStyle, MarkupType } from '../model/document.ts';
 export function initPropertiesPanel(): void {
   const panel = document.getElementById('properties-content')!;
 
-  // Track structural context so we only rebuild the panel when the tool or
-  // selected markup(s) actually change — NOT on every style-prop update.
-  // Without this guard, dragging a slider triggers setStyleProp → state change
-  // → panel rebuild → slider element destroyed mid-drag → drag snaps to click.
   let lastTool: string | null = null;
   let lastMarkupIds = '';
   let lastMarkupTypes = '';
+  let lastCountKey = '';
 
   appState.subscribe((state) => {
     const idsKey = state.selectedMarkupIds.join(',');
     const typesKey = state.selectedMarkupTypes.join(',');
+    // For the count tool: rebuild when category list changes (add/delete) OR active
+    // category changes (row highlight). Count values alone (stamps placed) do NOT
+    // rebuild — those are handled imperatively by the count-summary-change handler.
+    const countKey = state.activeTool === 'count'
+      ? `${state.countSummary.map(s => s.id).join(',')}|${state.activeCountCategoryId}`
+      : '';
     if (
       state.activeTool === lastTool &&
       idsKey === lastMarkupIds &&
-      typesKey === lastMarkupTypes
+      typesKey === lastMarkupTypes &&
+      countKey === lastCountKey
     ) {
-      return; // style-only change — the panel DOM is still correct
+      return;
     }
     lastTool = state.activeTool;
     lastMarkupIds = idsKey;
     lastMarkupTypes = typesKey;
+    lastCountKey = countKey;
     renderPanel(panel, state);
+  });
+
+  // Badge-only update: update count numbers in the panel without rebuilding it.
+  appState.on('count-summary-change', () => {
+    if (appState.state.activeTool !== 'count') return;
+    const summary = appState.state.countSummary;
+    summary.forEach(item => {
+      const badge = panel.querySelector<HTMLSpanElement>(`[data-count-badge="${item.id}"]`);
+      if (badge) badge.textContent = String(item.count);
+    });
+  });
+
+  // Size-only update: sync the slider value label without rebuilding the panel.
+  appState.on('cmd-count-set-size', (data) => {
+    if (appState.state.activeTool !== 'count') return;
+    const { size } = data as { size: number };
+    const sec = panel.querySelector<HTMLElement>('[data-count-size-section]');
+    const valueEl = sec?.querySelector<HTMLSpanElement>('.slider-value');
+    if (valueEl) valueEl.textContent = `${size} pt`;
   });
 
   renderPanel(panel, appState.state);
@@ -67,6 +92,11 @@ function renderPanel(panel: HTMLElement, state: typeof appState.state): void {
     return;
   }
 
+  if (activeTool === 'count' && !hasSelection) {
+    renderCountPanel(panel, state);
+    return;
+  }
+
   if (isSelect && !hasSelection) {
     panel.innerHTML = '<p class="prop-hint">Click an object to select it, or drag to select multiple.</p>';
     return;
@@ -77,6 +107,7 @@ function renderPanel(panel: HTMLElement, state: typeof appState.state): void {
   // For a selection, use the types of selected markups.
 
   const measureToolNames = ['measure-linear', 'measure-rect', 'measure-poly'];
+  const countToolNames: MarkupType[] = ['count', 'count-legend'];
 
   let effectiveTypes: MarkupType[];
   if (isSelect && hasSelection) {
@@ -93,6 +124,17 @@ function renderPanel(panel: HTMLElement, state: typeof appState.state): void {
         <p class="prop-hint" id="measure-scale-status"></p>
       </div>`;
     updateMeasureStatus();
+    return;
+  }
+
+  // ── Count markup selected ─────────────────────────────────────────────────
+  const isCountSelected = isSelect && hasSelection && effectiveTypes.every(t => countToolNames.includes(t));
+  if (isCountSelected) {
+    const section = document.createElement('div');
+    section.className = 'prop-section';
+    const typeLabel = effectiveTypes[0] === 'count-legend' ? 'Count Legend' : 'Count Stamp';
+    section.innerHTML = `<h4 class="prop-title">${typeLabel}</h4><p class="prop-hint">Move with the Select tool. Delete removes the stamp and updates the legend.</p>`;
+    panel.appendChild(section);
     return;
   }
 
@@ -248,6 +290,109 @@ function renderPanel(panel: HTMLElement, state: typeof appState.state): void {
   }
 }
 
+function renderCountPanel(panel: HTMLElement, state: typeof appState.state): void {
+  panel.innerHTML = '';
+
+  const header = document.createElement('div');
+  header.className = 'prop-section';
+  header.innerHTML = `<h4 class="prop-title">Count Items</h4><p class="prop-hint">Select a category then click the drawing to stamp symbols.</p>`;
+  panel.appendChild(header);
+
+  const listSection = document.createElement('div');
+  listSection.className = 'prop-section count-category-list';
+
+  state.countSummary.forEach(item => {
+    const row = document.createElement('div');
+    row.className = `count-row${state.activeCountCategoryId === item.id ? ' count-row-active' : ''}`;
+    row.dataset.countId = item.id;
+
+    // Clicking the row sets it as active
+    row.addEventListener('click', () => {
+      appState.emit('cmd-count-set-active', { id: item.id });
+    });
+
+    // Symbol select
+    const symSelect = document.createElement('select');
+    symSelect.className = 'count-symbol-select';
+    symSelect.title = 'Symbol shape';
+    COUNT_SYMBOLS.forEach(sym => {
+      const opt = document.createElement('option');
+      opt.value = sym;
+      opt.textContent = { circle: '●', square: '■', triangle: '▲', diamond: '◆', cross: '✕' }[sym];
+      if (sym === item.symbol) opt.selected = true;
+      symSelect.appendChild(opt);
+    });
+    symSelect.addEventListener('change', (e) => {
+      e.stopPropagation();
+      appState.emit('cmd-count-set-symbol', { id: item.id, symbol: (e.target as HTMLSelectElement).value });
+    });
+    row.appendChild(symSelect);
+
+    // Color swatch (reuse createColorPicker but inline-ish: just use a color input)
+    const colorInput = document.createElement('input');
+    colorInput.type = 'color';
+    colorInput.className = 'count-color-swatch';
+    colorInput.value = item.color;
+    colorInput.title = 'Category color';
+    colorInput.addEventListener('click', e => e.stopPropagation());
+    colorInput.addEventListener('input', (e) => {
+      appState.emit('cmd-count-set-color', { id: item.id, color: (e.target as HTMLInputElement).value });
+    });
+    row.appendChild(colorInput);
+
+    // Name input
+    const nameInput = document.createElement('input');
+    nameInput.type = 'text';
+    nameInput.className = 'count-name-input';
+    nameInput.value = item.name;
+    nameInput.placeholder = 'Category name';
+    nameInput.addEventListener('click', e => e.stopPropagation());
+    nameInput.addEventListener('change', (e) => {
+      appState.emit('cmd-count-rename', { id: item.id, name: (e.target as HTMLInputElement).value.trim() || item.name });
+    });
+    row.appendChild(nameInput);
+
+    // Count badge
+    const badge = document.createElement('span');
+    badge.className = 'count-badge';
+    badge.dataset.countBadge = item.id;
+    badge.textContent = String(item.count);
+    row.appendChild(badge);
+
+    // Delete button
+    const del = document.createElement('button');
+    del.className = 'count-delete-btn';
+    del.title = 'Remove category and all its stamps';
+    del.textContent = '×';
+    del.addEventListener('click', (e) => {
+      e.stopPropagation();
+      appState.emit('cmd-count-delete', { id: item.id });
+    });
+    row.appendChild(del);
+
+    listSection.appendChild(row);
+  });
+
+  panel.appendChild(listSection);
+
+  // "Add New Count" button
+  const addBtn = document.createElement('button');
+  addBtn.className = 'count-add-btn';
+  addBtn.textContent = '+ Add New Count';
+  addBtn.addEventListener('click', () => appState.emit('cmd-count-add-category'));
+  panel.appendChild(addBtn);
+
+  // Symbol size slider
+  const sizeSection = document.createElement('div');
+  sizeSection.className = 'prop-section';
+  sizeSection.dataset.countSizeSection = '1';
+  sizeSection.innerHTML = `<h4 class="prop-title">Symbol Size</h4>`;
+  sizeSection.appendChild(createSliderRow('Size', state.countSymbolSize, 4, 32, 1, (v) => {
+    appState.emit('cmd-count-set-size', { size: v });
+  }, 'pt'));
+  panel.appendChild(sizeSection);
+}
+
 function markupTypeLabel(type: MarkupType): string {
   const labels: Record<MarkupType, string> = {
     pen: 'Pen',
@@ -260,6 +405,8 @@ function markupTypeLabel(type: MarkupType): string {
     'measure-linear': 'Linear Measurement',
     'measure-rect': 'Rectangle Measurement',
     'measure-poly': 'Polygon Measurement',
+    'count': 'Count Stamp',
+    'count-legend': 'Count Legend',
   };
   return labels[type] ?? type;
 }

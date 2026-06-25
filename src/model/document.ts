@@ -8,7 +8,30 @@ export interface Point {
 
 export type MarkupType =
   | 'pen' | 'line' | 'arrow' | 'rect' | 'ellipse' | 'box' | 'text'
-  | 'measure-linear' | 'measure-rect' | 'measure-poly';
+  | 'measure-linear' | 'measure-rect' | 'measure-poly'
+  | 'count' | 'count-legend';
+
+export type CountSymbol = 'circle' | 'square' | 'triangle' | 'diamond' | 'cross';
+
+export const COUNT_SYMBOLS: CountSymbol[] = ['circle', 'square', 'triangle', 'diamond', 'cross'];
+export const COUNT_COLORS: string[] = [
+  '#e63946', '#2196f3', '#4caf50', '#ff9800', '#9c27b0',
+  '#00bcd4', '#ff5722', '#795548', '#607d8b', '#f06292',
+];
+
+export interface CountCategory {
+  id: string;
+  name: string;
+  symbol: CountSymbol;
+  color: string;
+}
+
+export interface LegendRow {
+  label: string;
+  symbol: CountSymbol;
+  color: string;
+  count: number;
+}
 
 export interface StrokeStyle {
   strokeColor: string;   // CSS hex
@@ -95,9 +118,27 @@ export interface MeasurePolyMarkup extends BaseMarkup {
   label: string;
 }
 
+export interface CountMarkup extends BaseMarkup {
+  type: 'count';
+  x: number; y: number;
+  categoryId: string;
+  symbol: CountSymbol;
+  color: string;
+  size?: number;
+}
+
+export interface CountLegendMarkup extends BaseMarkup {
+  type: 'count-legend';
+  x: number; y: number;
+  title: string;
+  rows: LegendRow[];
+  legendScale?: number;
+}
+
 export type Markup =
   | PenMarkup | LineMarkup | ArrowMarkup | RectMarkup | EllipseMarkup
-  | BoxMarkup | TextMarkup | MeasureLinearMarkup | MeasureRectMarkup | MeasurePolyMarkup;
+  | BoxMarkup | TextMarkup | MeasureLinearMarkup | MeasureRectMarkup | MeasurePolyMarkup
+  | CountMarkup | CountLegendMarkup;
 
 export interface PageScale {
   /** PDF points per one base unit (1 inch for imperial, 1 mm for metric) */
@@ -111,6 +152,8 @@ export interface PageData {
   index: number;
   scale: PageScale;
   markups: Markup[];
+  countCategories: CountCategory[];
+  countSymbolSize?: number;
 }
 
 export type UnitSystem = 'imperial' | 'metric';

@@ -722,3 +722,122 @@ html, body { height: 100%; overflow: hidden; }
 @media (max-width: 768px) {
   #properties-panel { display: none; }
 }
+
+/* ── Count tool panel ────────────────────────────────────────────────────── */
+
+.count-category-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-bottom: 4px;
+}
+
+.count-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  background: var(--panel-section-bg, #252525);
+  transition: background 0.15s;
+}
+
+.count-row:hover {
+  background: #2e2e2e;
+}
+
+.count-row.count-row-active {
+  border-color: var(--accent, #0077cc);
+  background: rgba(0, 119, 204, 0.12);
+}
+
+.count-symbol-select {
+  width: 36px;
+  padding: 2px 2px;
+  background: #1e1e1e;
+  border: 1px solid var(--border, #333);
+  color: var(--text, #ddd);
+  border-radius: 3px;
+  font-size: 13px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.count-color-swatch {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  flex-shrink: 0;
+  background: transparent;
+}
+
+.count-name-input {
+  flex: 1;
+  min-width: 0;
+  padding: 3px 5px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text, #ddd);
+  font-size: 12px;
+  border-radius: 3px;
+}
+
+.count-name-input:focus {
+  outline: none;
+  border-color: var(--accent, #0077cc);
+  background: #1e1e1e;
+}
+
+.count-badge {
+  font-size: 11px;
+  font-weight: bold;
+  color: var(--text-muted, #999);
+  min-width: 20px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.count-row-active .count-badge {
+  color: var(--accent, #0077cc);
+}
+
+.count-delete-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted, #888);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 0 2px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.count-delete-btn:hover {
+  color: #e63946;
+  background: rgba(230, 57, 70, 0.15);
+}
+
+.count-add-btn {
+  width: 100%;
+  margin-top: 4px;
+  padding: 7px 10px;
+  background: transparent;
+  border: 1px dashed var(--border, #444);
+  color: var(--accent, #0077cc);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  text-align: center;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.count-add-btn:hover {
+  background: rgba(0, 119, 204, 0.1);
+  border-color: var(--accent, #0077cc);
+}

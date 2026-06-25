@@ -1,10 +1,19 @@
-import type { LinearUnit, MarkupStyle, MarkupType, UnitsSettings } from '../model/document.ts';
+import type { CountSymbol, LinearUnit, MarkupStyle, MarkupType, UnitsSettings } from '../model/document.ts';
 import { DEFAULT_FILL_STYLE, DEFAULT_STROKE_STYLE, DEFAULT_TEXT_STYLE, DEFAULT_UNITS } from '../model/document.ts';
 
 export type ToolType =
   | 'select' | 'pan'
   | 'pen' | 'line' | 'arrow' | 'rect' | 'ellipse' | 'box' | 'text'
-  | 'scale-set' | 'measure-linear' | 'measure-rect' | 'measure-poly';
+  | 'scale-set' | 'measure-linear' | 'measure-rect' | 'measure-poly'
+  | 'count';
+
+export interface CountSummaryItem {
+  id: string;
+  name: string;
+  symbol: CountSymbol;
+  color: string;
+  count: number;
+}
 
 export interface AppStateData {
   activeTool: ToolType;
@@ -24,6 +33,9 @@ export interface AppStateData {
   hasPdf: boolean;
   undoAvailable: boolean;
   redoAvailable: boolean;
+  activeCountCategoryId: string | null;
+  countSummary: CountSummaryItem[];
+  countSymbolSize: number;
 }
 
 type StateListener = (state: Readonly<AppStateData>) => void;
@@ -48,6 +60,9 @@ class AppStateManager {
     hasPdf: false,
     undoAvailable: false,
     redoAvailable: false,
+    activeCountCategoryId: null,
+    countSummary: [],
+    countSymbolSize: 10,
   };
 
   private listeners: StateListener[] = [];
@@ -151,6 +166,11 @@ class AppStateManager {
     const newStyle = { ...this._state.activeStyle, [key]: value };
     this.update({ activeStyle: newStyle });
     this.emit('style-change', { key, value });
+  }
+
+  setActiveCountCategory(id: string | null): void {
+    this.update({ activeCountCategoryId: id });
+    this.emit('count-summary-change', this._state.countSummary);
   }
 }
 

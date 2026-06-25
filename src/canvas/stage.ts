@@ -1,5 +1,5 @@
 import Konva from 'konva';
-import type { Markup, PenMarkup, LineMarkup, ArrowMarkup, RectMarkup, EllipseMarkup, BoxMarkup, TextMarkup, MeasureLinearMarkup, MeasureRectMarkup, MeasurePolyMarkup, Point } from '../model/document.ts';
+import type { Markup, PenMarkup, LineMarkup, ArrowMarkup, RectMarkup, EllipseMarkup, BoxMarkup, TextMarkup, MeasureLinearMarkup, MeasureRectMarkup, MeasurePolyMarkup, CountMarkup, CountLegendMarkup, CountSymbol, Point } from '../model/document.ts';
 import { pdfToKonva, pdfPointsToKonva, pdfRectToKonva, konvaPointsToPdf, konvaRectToPdf, konvaToPdf } from '../geometry/transform.ts';
 
 export interface KonvaStageManager {
@@ -49,6 +49,36 @@ export function hexWithOpacity(hex: string, opacity: number): string {
   const g = parseInt(hex.slice(3, 5), 16);
   const b = parseInt(hex.slice(5, 7), 16);
   return `rgba(${r},${g},${b},${opacity})`;
+}
+
+/**
+ * Create a centered Konva shape for a count symbol.
+ * Returns a Konva.Group so callers don't need to know shape types.
+ */
+export function createCountSymbolShape(symbol: CountSymbol, color: string, size: number): Konva.Group {
+  const g = new Konva.Group();
+  const r = size / 2;
+  switch (symbol) {
+    case 'circle':
+      g.add(new Konva.Circle({ radius: r, fill: color, stroke: '#fff', strokeWidth: 1.5 }));
+      break;
+    case 'square':
+      g.add(new Konva.Rect({ x: -r, y: -r, width: size, height: size, fill: color, stroke: '#fff', strokeWidth: 1.5 }));
+      break;
+    case 'triangle':
+      g.add(new Konva.RegularPolygon({ sides: 3, radius: r, fill: color, stroke: '#fff', strokeWidth: 1.5 }));
+      break;
+    case 'diamond':
+      g.add(new Konva.RegularPolygon({ sides: 4, radius: r, rotation: 45, fill: color, stroke: '#fff', strokeWidth: 1.5 }));
+      break;
+    case 'cross': {
+      const t = Math.max(1.5, size * 0.2);
+      g.add(new Konva.Line({ points: [-r, 0, r, 0], stroke: color, strokeWidth: t, lineCap: 'round' }));
+      g.add(new Konva.Line({ points: [0, -r, 0, r], stroke: color, strokeWidth: t, lineCap: 'round' }));
+      break;
+    }
+  }
+  return g;
 }
 
 /** Create a Konva shape for the given markup (in Konva/screen space) */
@@ -313,6 +343,85 @@ export function createMarkupNode(markup: Markup, pageHeightPts: number): Konva.N
       break;
     }
 
+    case 'count': {
+      const m = markup as CountMarkup;
+      const pos = pdfToKonva(m.x, m.y, pageHeightPts);
+      const size = m.size ?? 10;
+      const group = new Konva.Group({ name: 'markup', id: markup.id, x: pos.x, y: pos.y });
+      group.add(createCountSymbolShape(m.symbol, m.color, size));
+      node = group;
+      break;
+    }
+
+    case 'count-legend': {
+      const m = markup as CountLegendMarkup;
+      const pos = pdfToKonva(m.x, m.y, pageHeightPts);
+
+      const PADDING = 8;
+      const ROW_H = 18;
+      const SYMBOL_SIZE = 10;
+      const TITLE_H = 20;
+      const COL_SYMBOL = PADDING;
+      const COL_LABEL = PADDING + SYMBOL_SIZE + 6;
+      const COL_COUNT_RIGHT = 150; // legend width minus padding
+      const LEGEND_W = COL_COUNT_RIGHT + PADDING;
+
+      const totalH = PADDING + TITLE_H + m.rows.length * ROW_H + PADDING;
+
+      const group = new Konva.Group({
+        name: 'markup', id: markup.id,
+        x: pos.x, y: pos.y,
+        scaleX: m.legendScale ?? 1,
+        scaleY: m.legendScale ?? 1,
+      });
+
+      // Background
+      group.add(new Konva.Rect({
+        width: LEGEND_W, height: totalH,
+        fill: 'rgba(255,255,255,0.93)',
+        stroke: '#999', strokeWidth: 1,
+        cornerRadius: 4,
+        shadowColor: 'rgba(0,0,0,0.15)', shadowBlur: 4, shadowOffset: { x: 1, y: 1 },
+      }));
+
+      // Title
+      group.add(new Konva.Text({
+        x: PADDING, y: PADDING,
+        width: LEGEND_W - PADDING * 2,
+        text: m.title || 'Count Legend',
+        fontSize: 11, fontFamily: 'Arial', fontStyle: 'bold',
+        fill: '#222',
+      }));
+
+      // Rows
+      m.rows.forEach((row, i) => {
+        const rowY = PADDING + TITLE_H + i * ROW_H;
+        const sym = createCountSymbolShape(row.symbol, row.color, SYMBOL_SIZE);
+        sym.x(COL_SYMBOL + SYMBOL_SIZE / 2);
+        sym.y(rowY + ROW_H / 2);
+        group.add(sym);
+
+        group.add(new Konva.Text({
+          x: COL_LABEL, y: rowY + 2,
+          width: COL_COUNT_RIGHT - COL_LABEL - 24,
+          text: row.label,
+          fontSize: 10, fontFamily: 'Arial', fill: '#222',
+          ellipsis: true,
+        }));
+
+        group.add(new Konva.Text({
+          x: COL_COUNT_RIGHT - 22, y: rowY + 2,
+          width: 22,
+          text: String(row.count),
+          fontSize: 10, fontFamily: 'Arial', fill: '#444',
+          align: 'right',
+        }));
+      });
+
+      node = group;
+      break;
+    }
+
     default: {
       const m = markup as { id: string };
       node = new Konva.Group({ name: 'markup', id: m.id });
@@ -525,6 +634,27 @@ export function createStage(containerId: string, width: number, height: number, 
             node.x(0); node.y(0);
           }
           node.scaleX(1); node.scaleY(1);
+          break;
+        }
+        case 'count': {
+          // Node lives at absolute Konva position (pos.x, pos.y), so convert
+          // the absolute tx/ty back to PDF coords rather than using the delta pattern.
+          const m = markup as CountMarkup;
+          const cPdf = konvaToPdf(tx, ty, h);
+          m.x = cPdf.x; m.y = cPdf.y;
+          node.x(tx); node.y(ty);
+          node.scaleX(1); node.scaleY(1);
+          break;
+        }
+        case 'count-legend': {
+          // Same absolute-position approach. Also bake scale: sx = node.scaleX()
+          // is already the cumulative total (Konva multiplies from the current base).
+          const m = markup as CountLegendMarkup;
+          const lPdf = konvaToPdf(tx, ty, h);
+          m.x = lPdf.x; m.y = lPdf.y;
+          m.legendScale = sx; // absolute total scale — store directly
+          node.x(tx); node.y(ty);
+          node.scaleX(m.legendScale); node.scaleY(m.legendScale);
           break;
         }
         default:
