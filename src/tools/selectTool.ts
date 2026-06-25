@@ -61,9 +61,28 @@ export class SelectTool extends BaseTool {
       }
 
       if (markupNode) {
-        // Single-click on a markup → select it
-        this.transformer!.nodes([markupNode as Konva.Shape]);
-        appState.setSelection(markupNode.id());
+        const shiftHeld = (e.evt as MouseEvent).shiftKey;
+        if (shiftHeld) {
+          // Shift+click: toggle this node in/out of the current selection
+          const current = this.transformer!.nodes();
+          const idx = current.indexOf(markupNode as Konva.Shape);
+          let next: Konva.Node[];
+          if (idx >= 0) {
+            // Already selected → deselect it
+            next = current.filter((_, i) => i !== idx);
+          } else {
+            // Not yet selected → add it
+            next = [...current, markupNode];
+          }
+          this.transformer!.nodes(next as Konva.Shape[]);
+          if (next.length === 0) appState.setSelection(null);
+          else if (next.length === 1) appState.setSelection(next[0].id());
+          else appState.setMultiSelection(next.map(n => n.id()));
+        } else {
+          // Normal click → replace selection
+          this.transformer!.nodes([markupNode as Konva.Shape]);
+          appState.setSelection(markupNode.id());
+        }
         interactionLayer.draw();
         e.cancelBubble = true;
         return;
@@ -71,8 +90,12 @@ export class SelectTool extends BaseTool {
 
       // Anything that is not a markup or transformer handle (stage background,
       // the page image, etc.) starts a rubber-band selection.
-      this.transformer!.nodes([]);
-      appState.setSelection(null);
+      // Shift+drag on background: keep existing selection and add to it.
+      const shiftHeld = (e.evt as MouseEvent).shiftKey;
+      if (!shiftHeld) {
+        this.transformer!.nodes([]);
+        appState.setSelection(null);
+      }
       this.isSelecting = true;
       const pos = this.ctx.stageManager.getLayerPointer();
       if (pos) this.selStart = { ...pos };
@@ -125,9 +148,14 @@ export class SelectTool extends BaseTool {
       });
 
       if (selected.length > 0) {
-        this.transformer!.nodes(selected as Konva.Shape[]);
-        if (selected.length === 1) appState.setSelection(selected[0].id());
-        else appState.setMultiSelection(selected.map(n => n.id()));
+        // When Shift is held, merge rubber-band results with the existing selection
+        const existing = this.transformer!.nodes();
+        const merged = existing.length > 0
+          ? [...existing, ...selected.filter(n => !existing.includes(n))]
+          : selected;
+        this.transformer!.nodes(merged as Konva.Shape[]);
+        if (merged.length === 1) appState.setSelection(merged[0].id());
+        else appState.setMultiSelection(merged.map(n => n.id()));
       }
       interactionLayer.draw();
     });

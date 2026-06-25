@@ -688,24 +688,29 @@ async function handleSaveProject(): Promise<void> {
   if (!pdfBytes) return;
   const fileName = project.pdfFileName || 'redline';
   const suggestedName = fileName.replace(/\.pdf$/i, '') + '.redline';
-  if (isTauri()) {
-    const { buildRedlinePayload } = await import('./storage/projectStore.ts');
-    const payload = buildRedlinePayload(project, pdfBytes);
-    const bytes = new TextEncoder().encode(payload);
-    if (lastSavedProjectPath) {
-      // Quick-save: overwrite the previously saved file without opening a picker
-      const { writeFile } = await import('@tauri-apps/plugin-fs');
-      await writeFile(lastSavedProjectPath, bytes);
+  showWorking('Saving project…');
+  try {
+    if (isTauri()) {
+      const { buildRedlinePayload } = await import('./storage/projectStore.ts');
+      const payload = buildRedlinePayload(project, pdfBytes);
+      const bytes = new TextEncoder().encode(payload);
+      if (lastSavedProjectPath) {
+        // Quick-save: overwrite the previously saved file without opening a picker
+        const { writeFile } = await import('@tauri-apps/plugin-fs');
+        await writeFile(lastSavedProjectPath, bytes);
+      } else {
+        const savedPath = await saveFileNative(bytes, suggestedName, 'redline', 'RedlinePDF Projects');
+        if (savedPath) lastSavedProjectPath = savedPath;
+      }
     } else {
-      const savedPath = await saveFileNative(bytes, suggestedName, 'redline', 'RedlinePDF Projects');
-      if (savedPath) lastSavedProjectPath = savedPath;
+      const json = (await import('./storage/projectStore.ts')).buildRedlinePayload(project, pdfBytes);
+      const blob = new Blob([json], { type: 'application/json' });
+      await saveWithFilePicker(blob, suggestedName, 'RedlinePDF Project', {
+        'application/json': ['.redline'],
+      });
     }
-  } else {
-    const json = (await import('./storage/projectStore.ts')).buildRedlinePayload(project, pdfBytes);
-    const blob = new Blob([json], { type: 'application/json' });
-    await saveWithFilePicker(blob, suggestedName, 'RedlinePDF Project', {
-      'application/json': ['.redline'],
-    });
+  } finally {
+    hideWorking();
   }
 }
 
@@ -923,6 +928,40 @@ function setupKeyboardShortcuts(): void {
     if (e.key === 'Delete' || e.key === 'Backspace') {
       removeSelectedMarkups();
       return;
+    }
+
+    // Arrow keys: nudge selected markups, or navigate pages when nothing is selected
+    if (!ctrl && (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+      const { activePageIndex, totalPages, selectedMarkupIds } = appState.state;
+
+      if (selectedMarkupIds.length > 0 && stageManager) {
+        // Nudge: 1px normally, 10px with Shift (in Konva screen-pixels; bakeTransform converts to PDF pts)
+        e.preventDefault();
+        const step = e.shiftKey ? 10 : 1;
+        const dx = e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0;
+        const dy = e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0;
+        snapshotMarkups();
+        for (const id of selectedMarkupIds) {
+          const node = stageManager.findNode(id);
+          if (!node) continue;
+          node.x(node.x() + dx);
+          node.y(node.y() + dy);
+          appState.emit('markup-transform', { id });
+        }
+        return;
+      }
+
+      // No selection → navigate pages
+      if (e.key === 'ArrowRight' && activePageIndex < totalPages - 1) {
+        e.preventDefault();
+        appState.setPage(activePageIndex + 1);
+        return;
+      }
+      if (e.key === 'ArrowLeft' && activePageIndex > 0) {
+        e.preventDefault();
+        appState.setPage(activePageIndex - 1);
+        return;
+      }
     }
 
     // Tool shortcuts
