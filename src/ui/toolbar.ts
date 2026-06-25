@@ -56,7 +56,7 @@ export function initToolbar(): void {
 
     // Enable/disable PDF-dependent buttons
     const hasPdf = state.hasPdf;
-    const pdfBtns = ['btn-save-project', 'btn-export-pdf', 'btn-zoom-in', 'btn-zoom-out', 'btn-fit-width'];
+    const pdfBtns = ['btn-save-project', 'btn-save-project-as', 'btn-export-pdf', 'btn-zoom-in', 'btn-zoom-out', 'btn-fit-width'];
     pdfBtns.forEach(id => {
       const btn = document.getElementById(id) as HTMLButtonElement;
       if (btn) btn.disabled = !hasPdf;

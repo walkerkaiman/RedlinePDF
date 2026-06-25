@@ -43,6 +43,10 @@ let stageManager: ReturnType<typeof createStage> | null = null;
 let activeTool: BaseTool | null = null;
 let project: ProjectData = { version: 1, pdfFileName: '', units: { ...DEFAULT_UNITS }, pages: [] };
 
+// Last path the project was saved to (Tauri only). Allows Ctrl+S to save in-place
+// without opening the picker again after the first save.
+let lastSavedProjectPath: string | null = null;
+
 // Undo/redo history (snapshot per action)
 const undoStack: string[] = [];
 const redoStack: string[] = [];
@@ -437,6 +441,7 @@ async function loadPdfFile(bytes: Uint8Array, fileName: string): Promise<void> {
 
   undoStack.length = 0;
   redoStack.length = 0;
+  lastSavedProjectPath = null; // new PDF = unsaved project
   appState.update({
     hasPdf: true,
     totalPages: numPages,
@@ -656,18 +661,66 @@ function recalculateMeasureLabels(): void {
   }
 }
 
+// ── File action handlers (module-level so keyboard shortcuts can call them) ───
+
+async function handleOpenPdf(): Promise<void> {
+  if (isTauri()) {
+    const result = await openPdfFileNative();
+    if (result) await loadPdfFile(result.bytes, result.name);
+  } else {
+    document.getElementById('file-input-pdf')?.click();
+  }
+}
+
+async function handleOpenProject(): Promise<void> {
+  if (isTauri()) {
+    const file = await openProjectFileNative();
+    if (file) {
+      const { project: p, pdfBytes: b } = await importProjectFile(file);
+      await loadPdfFromProject(p, b);
+    }
+  } else {
+    document.getElementById('file-input-project')?.click();
+  }
+}
+
+async function handleSaveProject(): Promise<void> {
+  if (!pdfBytes) return;
+  const fileName = project.pdfFileName || 'redline';
+  const suggestedName = fileName.replace(/\.pdf$/i, '') + '.redline';
+  if (isTauri()) {
+    const { buildRedlinePayload } = await import('./storage/projectStore.ts');
+    const payload = buildRedlinePayload(project, pdfBytes);
+    const bytes = new TextEncoder().encode(payload);
+    if (lastSavedProjectPath) {
+      // Quick-save: overwrite the previously saved file without opening a picker
+      const { writeFile } = await import('@tauri-apps/plugin-fs');
+      await writeFile(lastSavedProjectPath, bytes);
+    } else {
+      const savedPath = await saveFileNative(bytes, suggestedName, 'redline', 'RedlinePDF Projects');
+      if (savedPath) lastSavedProjectPath = savedPath;
+    }
+  } else {
+    const json = (await import('./storage/projectStore.ts')).buildRedlinePayload(project, pdfBytes);
+    const blob = new Blob([json], { type: 'application/json' });
+    await saveWithFilePicker(blob, suggestedName, 'RedlinePDF Project', {
+      'application/json': ['.redline'],
+    });
+  }
+}
+
+/** Force "Save As" — opens the picker regardless of lastSavedProjectPath */
+async function handleSaveProjectAs(): Promise<void> {
+  lastSavedProjectPath = null;
+  await handleSaveProject();
+}
+
 // ── Drag and drop ─────────────────────────────────────────────────────────────
 
-function setupDragDrop(): void {
-  const viewport = document.getElementById('canvas-viewport')!;
-
-  viewport.addEventListener('dragover', (e) => { e.preventDefault(); viewport.classList.add('drag-over'); });
-  viewport.addEventListener('dragleave', () => viewport.classList.remove('drag-over'));
-  viewport.addEventListener('drop', async (e) => {
-    e.preventDefault();
-    viewport.classList.remove('drag-over');
-    const file = e.dataTransfer?.files[0];
-    if (!file) return;
+/** Shared handler for a dropped file path or File object */
+async function handleDroppedFile(file: File): Promise<void> {
+  showWorking('Loading…');
+  try {
     if (file.name.endsWith('.pdf')) {
       const bytes = new Uint8Array(await file.arrayBuffer());
       await loadPdfFile(bytes, file.name);
@@ -675,7 +728,57 @@ function setupDragDrop(): void {
       const { project: p, pdfBytes: b } = await importProjectFile(file);
       await loadPdfFromProject(p, b);
     }
+  } finally {
+    hideWorking();
+  }
+}
+
+function setupDragDrop(): void {
+  const viewport = document.getElementById('canvas-viewport')!;
+
+  // HTML5 drag-and-drop (browser and WebView2 when not intercepted by Tauri)
+  viewport.addEventListener('dragover', (e) => { e.preventDefault(); viewport.classList.add('drag-over'); });
+  viewport.addEventListener('dragleave', () => viewport.classList.remove('drag-over'));
+  viewport.addEventListener('drop', async (e) => {
+    e.preventDefault();
+    viewport.classList.remove('drag-over');
+    const file = e.dataTransfer?.files[0];
+    if (!file) return;
+    await handleDroppedFile(file);
   });
+
+  // Tauri-native file drop: WebView2 on Windows intercepts OS drag-drop before
+  // the HTML5 dataTransfer fires, so we listen to the Tauri event as a fallback.
+  if (isTauri()) {
+    import('@tauri-apps/api/event').then(({ listen }) => {
+      listen<{ paths: string[]; position: { x: number; y: number } }>('tauri://drag-drop', async (event) => {
+        const path = event.payload.paths[0];
+        if (!path) return;
+        viewport.classList.remove('drag-over');
+        const { readFile, readTextFile } = await import('@tauri-apps/plugin-fs');
+        const name = path.split(/[\\/]/).pop() ?? '';
+        showWorking('Loading…');
+        try {
+          if (name.endsWith('.pdf')) {
+            const bytes = await readFile(path);
+            await loadPdfFile(new Uint8Array(bytes), name);
+          } else if (name.endsWith('.redline')) {
+            const text = await readTextFile(path);
+            const blob = new Blob([text], { type: 'application/json' });
+            const file = new File([blob], name, { type: 'application/json' });
+            const { project: p, pdfBytes: byt } = await importProjectFile(file);
+            await loadPdfFromProject(p, byt);
+          }
+        } finally {
+          hideWorking();
+        }
+      }).catch(console.error);
+
+      // Show drag-over highlight on Tauri drag-enter
+      listen('tauri://drag-enter', () => viewport.classList.add('drag-over')).catch(console.error);
+      listen('tauri://drag-leave', () => viewport.classList.remove('drag-over')).catch(console.error);
+    }).catch(console.error);
+  }
 }
 
 // ── File input handlers ───────────────────────────────────────────────────────
@@ -699,52 +802,14 @@ function setupFileInputs(): void {
     projectInput.value = '';
   });
 
-  // Open PDF: use native dialog in Tauri, browser input elsewhere
-  async function handleOpenPdf(): Promise<void> {
-    if (isTauri()) {
-      const result = await openPdfFileNative();
-      if (result) await loadPdfFile(result.bytes, result.name);
-    } else {
-      document.getElementById('file-input-pdf')?.click();
-    }
-  }
-
-  // Open Project: native dialog in Tauri, browser input elsewhere
-  async function handleOpenProject(): Promise<void> {
-    if (isTauri()) {
-      const file = await openProjectFileNative();
-      if (file) {
-        const { project: p, pdfBytes: b } = await importProjectFile(file);
-        await loadPdfFromProject(p, b);
-      }
-    } else {
-      document.getElementById('file-input-project')?.click();
-    }
-  }
-
   // Re-wire the open buttons to use Tauri-aware open
   document.getElementById('btn-open-pdf')?.addEventListener('click', () => void handleOpenPdf());
   document.getElementById('drop-open-btn')?.addEventListener('click', () => void handleOpenPdf());
   document.getElementById('btn-open-project')?.addEventListener('click', () => void handleOpenProject());
   document.getElementById('drop-open-project-btn')?.addEventListener('click', () => void handleOpenProject());
 
-  document.getElementById('btn-save-project')?.addEventListener('click', async () => {
-    if (!pdfBytes) return;
-    const fileName = project.pdfFileName || 'redline';
-    const suggestedName = fileName.replace(/\.pdf$/i, '') + '.redline';
-    if (isTauri()) {
-      const { buildRedlinePayload } = await import('./storage/projectStore.ts');
-      const payload = buildRedlinePayload(project, pdfBytes);
-      const bytes = new TextEncoder().encode(payload);
-      await saveFileNative(bytes, suggestedName, 'redline', 'RedlinePDF Projects');
-    } else {
-      const json = (await import('./storage/projectStore.ts')).buildRedlinePayload(project, pdfBytes);
-      const blob = new Blob([json], { type: 'application/json' });
-      await saveWithFilePicker(blob, suggestedName, 'RedlinePDF Project', {
-        'application/json': ['.redline'],
-      });
-    }
-  });
+  document.getElementById('btn-save-project')?.addEventListener('click', () => void handleSaveProject());
+  document.getElementById('btn-save-project-as')?.addEventListener('click', () => void handleSaveProjectAs());
 
   document.getElementById('btn-export-pdf')?.addEventListener('click', async () => {
     if (!pdfBytes) return;
@@ -817,6 +882,7 @@ async function loadPdfFromProject(p: ProjectData, b: Uint8Array): Promise<void> 
     pdfRenderer = await loadPdf(b);
     undoStack.length = 0;
     redoStack.length = 0;
+    lastSavedProjectPath = null; // opened from picker — save path not yet known
     appState.update({
       hasPdf: true,
       totalPages: pdfRenderer.numPages,
@@ -850,8 +916,8 @@ function setupKeyboardShortcuts(): void {
 
     if (ctrl && e.key === 'z') { e.preventDefault(); undo(); return; }
     if (ctrl && (e.key === 'y' || (e.shiftKey && e.key === 'Z'))) { e.preventDefault(); redo(); return; }
-    if (ctrl && e.key === 'o') { e.preventDefault(); document.getElementById('file-input-pdf')?.click(); return; }
-    if (ctrl && e.key === 's') { e.preventDefault(); if (pdfBytes) exportProjectFile(project, pdfBytes, project.pdfFileName || 'redline'); return; }
+    if (ctrl && e.key === 'o') { e.preventDefault(); void handleOpenProject(); return; }
+    if (ctrl && e.key === 's') { e.preventDefault(); void handleSaveProject(); return; }
     if (ctrl && e.key === 'e') { e.preventDefault(); document.getElementById('btn-export-pdf')?.click(); return; }
 
     if (e.key === 'Delete' || e.key === 'Backspace') {
