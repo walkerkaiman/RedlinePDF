@@ -327,13 +327,13 @@ export function createMarkupNode(markup: Markup, pageHeightPts: number): Konva.N
           const cy = m.points.reduce((s, p) => s + p.y, 0) / m.points.length;
           const kc = pdfToKonva(cx, cy, pageHeightPts);
           const label = new Konva.Text({
-            x: kc.x - 40, y: kc.y - 10,
+            x: kc.x - 75, y: kc.y - 10,
             text: m.label, fontSize: 11, fontFamily: 'Arial', fill: mColor,
-            align: 'center', width: 80,
+            align: 'center', width: 150,
           });
           const labelBg = new Konva.Rect({
-            x: kc.x - 43, y: kc.y - 13,
-            width: 86, height: label.height() + 6,
+            x: kc.x - 78, y: kc.y - 13,
+            width: 156, height: label.height() + 6,
             fill: 'rgba(255,255,255,0.85)', cornerRadius: 2,
           });
           group.add(labelBg, label);

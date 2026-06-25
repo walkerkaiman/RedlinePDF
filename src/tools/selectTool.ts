@@ -50,10 +50,15 @@ export class SelectTool extends BaseTool {
         checkNode = checkNode.getParent?.() ?? null;
       }
 
-      // Determine whether the click landed on a markup node (or its child).
-      const markupNode = target.hasName('markup')
-        ? target
-        : target.parent?.hasName('markup') ? target.parent : null;
+      // Walk up the ancestor chain to find the nearest node named 'markup'.
+      // This handles deeply nested groups (e.g. count symbols have two levels
+      // of Konva.Group before reaching the markup root).
+      let markupNode: Konva.Node | null = null;
+      let walk: Konva.Node | null = target;
+      while (walk && walk !== this.stage) {
+        if (walk.hasName('markup')) { markupNode = walk; break; }
+        walk = walk.getParent?.() ?? null;
+      }
 
       if (markupNode) {
         // Single-click on a markup → select it
@@ -171,6 +176,15 @@ export class SelectTool extends BaseTool {
     markupLayer.find('.markup').forEach((n) => (n as Konva.Shape).draggable(false));
 
     appState.setSelection(null);
+  }
+
+  /**
+   * Re-enable dragging on all markup nodes after the layer has been rebuilt
+   * (e.g. after undo/redo). Does not tear down the transformer.
+   */
+  refreshDraggable(): void {
+    const { markupLayer } = this.ctx.stageManager;
+    markupLayer.find('.markup').forEach((n) => (n as Konva.Shape).draggable(true));
   }
 
   /** Call to deselect everything (e.g., when a markup is deleted) */

@@ -225,6 +225,9 @@ function rebuildMarkupLayer(): void {
   const page = currentPage();
   if (!page) return;
   page.markups.forEach(m => stageManager!.addMarkupNode(m));
+  if (activeTool instanceof SelectTool) {
+    (activeTool as SelectTool).refreshDraggable();
+  }
 }
 
 // ── Count helpers ─────────────────────────────────────────────────────────────
@@ -535,6 +538,12 @@ function setupStageEvents(): void {
     // PDF-space coordinates and reset the node to identity scale.  This keeps
     // the model as the source of truth so exports and re-renders are correct.
     stageManager.bakeTransform(markup);
+    // Re-attach the transformer so it recalculates its bounding box after the
+    // bake resets the node's position/scale (without this, the transformer
+    // handles stay in the stale pre-bake position and subsequent drags fail).
+    if (activeTool instanceof SelectTool) {
+      (activeTool as SelectTool).refreshTransformerForNode(id);
+    }
     scheduleAutosave();
   });
 }
@@ -619,7 +628,7 @@ function recalculateMeasureLabels(): void {
     } else if (m.type === 'measure-poly') {
       const area = polygonArea(m.points);
       const perim = polygonPerimeter(m.points);
-      const newLabel = `Area: ${formatArea(area, ppi, unit)}\nPerim: ${formatLinear(perim, ppi, unit)}`;
+      const newLabel = `Area: ${formatArea(area, ppi, unit)}\n\nPerim: ${formatLinear(perim, ppi, unit)}`;
       if (newLabel !== m.label) { m.label = newLabel; changed = true; }
     }
   }

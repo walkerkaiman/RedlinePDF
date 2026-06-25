@@ -31,7 +31,7 @@ export class MeasurePolyTool extends BaseTool {
     const area = polygonArea(pdfPts);
     const perimeter = polygonPerimeter(pdfPts);
 
-    return `Area: ${formatArea(area, ppi, unit)}\nPerim: ${formatLinear(perimeter, ppi, unit)}`;
+    return `Area: ${formatArea(area, ppi, unit)}\n\nPerim: ${formatLinear(perimeter, ppi, unit)}`;
   }
 
   private updatePreview(): void {
@@ -50,8 +50,8 @@ export class MeasurePolyTool extends BaseTool {
       const cx = this.vertices.reduce((s, v) => s + v.x, 0) / this.vertices.length;
       const cy = this.vertices.reduce((s, v) => s + v.y, 0) / this.vertices.length;
       if (this.labelNode) {
-        this.labelNode.setAttrs({ x: cx - 50, y: cy - 12, text: label, visible: true });
-        this.labelBg?.setAttrs({ x: cx - 53, y: cy - 15, width: 106, height: this.labelNode.height() + 6, visible: true });
+        this.labelNode.setAttrs({ x: cx - 75, y: cy - 12, text: label, visible: true });
+        this.labelBg?.setAttrs({ x: cx - 78, y: cy - 15, width: 156, height: this.labelNode.height() + 6, visible: true });
       }
     } else if (this.labelNode) {
       this.labelNode.visible(false);
@@ -83,10 +83,10 @@ export class MeasurePolyTool extends BaseTool {
     // Pre-create label
     this.labelNode = new Konva.Text({
       x: 0, y: 0, text: '', fontSize: 11, fontFamily: 'Arial',
-      fill: '#0077cc', visible: false, width: 100, align: 'center',
+      fill: '#0077cc', visible: false, width: 150, align: 'center',
     });
     this.labelBg = new Konva.Rect({
-      x: 0, y: 0, width: 106, height: 0,
+      x: 0, y: 0, width: 156, height: 0,
       fill: 'rgba(255,255,255,0.85)', cornerRadius: 2, visible: false,
     });
     interactionLayer.add(this.labelBg, this.labelNode);
@@ -179,7 +179,7 @@ export class MeasurePolyTool extends BaseTool {
     let label: string;
     if (scale.calibrated) {
       const ppi = scale.pointsPerUnit;
-      label = `Area: ${formatArea(area, ppi, unit)}\nPerim: ${formatLinear(perimeter, ppi, unit)}`;
+      label = `Area: ${formatArea(area, ppi, unit)}\n\nPerim: ${formatLinear(perimeter, ppi, unit)}`;
     } else {
       label = `${pdfPts.length} vertices\n(Set scale to measure)`;
     }

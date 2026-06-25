@@ -59,7 +59,7 @@ export function formatLinear(distancePts: number, pointsPerRealInch: number, uni
   }
 
   const converted = inches * (INCH_TO_UNIT[unit] ?? 1);
-  return `${converted.toFixed(3).replace(/\.?0+$/, '')} ${LINEAR_LABELS[unit]}`;
+  return `${converted.toFixed(2).replace(/\.?0+$/, '')} ${LINEAR_LABELS[unit]}`;
 }
 
 /**
@@ -95,7 +95,7 @@ export function formatArea(areaPts2: number, pointsPerRealInch: number, unit: Li
     label = 'sq in';
   }
 
-  return `${areaConverted.toFixed(3).replace(/\.?0+$/, '')} ${label}`;
+  return `${areaConverted.toFixed(2).replace(/\.?0+$/, '')} ${label}`;
 }
 
 /**
