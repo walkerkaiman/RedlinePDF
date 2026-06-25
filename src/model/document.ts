@@ -7,7 +7,7 @@ export interface Point {
 }
 
 export type MarkupType =
-  | 'pen' | 'line' | 'arrow' | 'rect' | 'ellipse' | 'box' | 'text'
+  | 'pen' | 'line' | 'arrow' | 'ellipse' | 'box' | 'text'
   | 'measure-linear' | 'measure-rect' | 'measure-poly'
   | 'count' | 'count-legend';
 
@@ -79,11 +79,6 @@ export interface ArrowMarkup extends BaseMarkup {
   x1: number; y1: number; x2: number; y2: number;
 }
 
-export interface RectMarkup extends BaseMarkup {
-  type: 'rect';
-  x: number; y: number; width: number; height: number; // bottom-left origin
-}
-
 export interface EllipseMarkup extends BaseMarkup {
   type: 'ellipse';
   cx: number; cy: number; rx: number; ry: number;
@@ -136,7 +131,7 @@ export interface CountLegendMarkup extends BaseMarkup {
 }
 
 export type Markup =
-  | PenMarkup | LineMarkup | ArrowMarkup | RectMarkup | EllipseMarkup
+  | PenMarkup | LineMarkup | ArrowMarkup | EllipseMarkup
   | BoxMarkup | TextMarkup | MeasureLinearMarkup | MeasureRectMarkup | MeasurePolyMarkup
   | CountMarkup | CountLegendMarkup;
 

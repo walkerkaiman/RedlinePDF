@@ -3,7 +3,7 @@ import { DEFAULT_FILL_STYLE, DEFAULT_STROKE_STYLE, DEFAULT_TEXT_STYLE, DEFAULT_U
 
 export type ToolType =
   | 'select' | 'pan'
-  | 'pen' | 'line' | 'arrow' | 'rect' | 'ellipse' | 'box' | 'text'
+  | 'pen' | 'line' | 'arrow' | 'ellipse' | 'box' | 'text'
   | 'scale-set' | 'measure-linear' | 'measure-rect' | 'measure-poly'
   | 'count';
 

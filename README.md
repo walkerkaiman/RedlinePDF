@@ -1,7 +1,18 @@
 # RedlinePDF — Construction Markup Tool
 
-A lightweight, fully client-side browser PDF redlining tool built for construction.
-Import a PDF drawing, mark it up, measure it, and export a redlined PDF — or package it as a native Windows desktop app with Tauri.
+A lightweight desktop PDF redlining tool built for construction plans.
+Import a PDF drawing, mark it up, measure it, and export a redlined PDF.
+
+---
+
+## Installation
+
+Download the latest installer from the [**Releases page**](../../releases):
+
+- **Windows:** Run `RedlinePDF_*_x64-setup.exe` and follow the installer wizard.
+- **macOS:** Open `RedlinePDF_*_universal.dmg` and drag RedlinePDF to Applications.
+
+The installer registers `.redline` project files with the application — double-clicking a `.redline` file in Explorer / Finder will open it directly in RedlinePDF.
 
 ---
 
@@ -15,10 +26,10 @@ Import a PDF drawing, mark it up, measure it, and export a redlined PDF — or p
 | Freehand Pen | P | Smooth freehand annotation |
 | Line | L | Straight line between two points |
 | Arrow | A | Arrow pointing to a detail |
-| Rectangle | R | Outline rectangle (border color, width, opacity) |
 | Ellipse / Circle | E | Click center, drag to set radius |
-| Box | B | Filled box with separate border and fill properties |
+| Box | B | Filled box with border and fill color, width, and opacity |
 | Text | T | Drag to size a text box; edit font, size, color, background |
+| Count | C | Place symbol stamps and auto-populate a legend with totals |
 
 ### Measurement Tools
 | Tool | Key | Description |
@@ -34,12 +45,19 @@ Measurements require a calibrated scale (Set Scale first). Each page stores its 
 - **Linear:** Feet-Inches `12'-6 1/2"`, Feet, Inches, Yards, Meters, cm, mm
 - **Area:** sq ft, sq yd, acres, sq m, sq cm, sq mm
 
+### Count Tool
+Place symbols on the drawing to count items (doors, fixtures, outlets, etc.):
+- Add and name categories in the properties panel; pick a symbol shape and color per category
+- Click the drawing to stamp a symbol; the legend auto-updates with running totals
+- The legend is a moveable, scaleable element that renders on the exported PDF
+- Delete individual stamps with the Select tool; the legend count updates automatically
+
 ### Properties Panel
 Context-sensitive panel on the right updates based on the selected tool or selected markup:
 - **Stroke / Border:** color, width, opacity (pen, line, arrow, rectangle, ellipse, box, measurements)
 - **Fill:** color and opacity (Box tool)
 - **Text:** font family, size, bold, italic, text color, background color and opacity
-- **Multi-select:** selecting multiple elements shows the union of applicable properties; changes propagate only to elements that support the changed property (e.g. fill changes only affect boxes)
+- **Multi-select:** selecting multiple elements shows the union of applicable properties; changes propagate only to elements that support the changed property
 
 ### Multi-Select
 - Click to select a single element
@@ -57,66 +75,6 @@ Full undo history for all operations:
 - **Autosave** to IndexedDB every 2 seconds
 - **Save Project** → `.redline` file (JSON + embedded PDF) — fully reopenable and editable
 - **Export PDF** → rasterized redlined PDF at selectable resolution (96 / 150 / 300 DPI)
-  - Native "Save As" dialog in supported browsers and Tauri
-  - Resolution picker before export
-
----
-
-## Tech Stack
-- **Vite + TypeScript** — no framework, 100% client-side
-- **pdfjs-dist 4.x** — PDF rendering
-- **Konva.js** — vector markup canvas with Transformer for selection/resize
-- **pdf-lib** — PDF export (composite render: PDF background + Konva overlay)
-- **idb** — IndexedDB autosave
-- **Tauri 2.x** (optional) — native desktop packaging with native file dialogs
-
----
-
-## Running in the Browser
-
-```bash
-npm install
-npm run dev
-# Open http://localhost:5173
-```
-
-## Production Build
-
-```bash
-npm run build
-# Output in dist/
-```
-
-The `dist/` folder is a self-contained static site — host it anywhere (Netlify, Vercel, GitHub Pages, or a local HTTP server).
-
----
-
-## Desktop App (.exe) via Tauri
-
-### Prerequisites
-1. Install [Rust](https://rustup.rs/) (includes `cargo`)
-2. Install [WebView2](https://developer.microsoft.com/en-us/microsoft-edge/webview2/) (pre-installed on Windows 10/11)
-3. `npm install`
-
-### Development
-```bash
-npm run tauri:dev
-```
-
-### Build Installer (.exe for Windows)
-```bash
-npm run tauri:build
-# Installer: src-tauri/target/release/bundle/nsis/RedlinePDF_0.1.0_x64-setup.exe
-# Portable:  src-tauri/target/release/bundle/nsis/RedlinePDF_0.1.0_x64.exe
-```
-
-The desktop build uses the OS's native WebView2, so the installer is **~5–10 MB** (no bundled Chromium).
-
-### File Type Association
-The Tauri installer registers `.redline` project files with the application. Double-clicking a `.redline` file in Windows Explorer will open it directly in RedlinePDF.
-
-### App Icon
-The application icon and browser favicon are sourced from `public/favicon.svg`. All required platform icon sizes (ICO, ICNS, PNG at multiple resolutions, Windows APPX tiles, iOS, Android) are generated automatically via `npx tauri icon src-tauri/app-icon.svg`.
 
 ---
 
@@ -129,7 +87,7 @@ The application icon and browser favicon are sourced from `public/favicon.svg`. 
 | Export PDF | Ctrl+E |
 | Undo | Ctrl+Z |
 | Redo | Ctrl+Y / Ctrl+Shift+Z |
-| Delete selected | Delete |
+| Delete selected | Delete / Backspace |
 | Zoom In | + |
 | Zoom Out | - |
 | Fit Width | F |
@@ -138,10 +96,10 @@ The application icon and browser favicon are sourced from `public/favicon.svg`. 
 | Pen | P |
 | Line | L |
 | Arrow | A |
-| Rectangle | R |
 | Ellipse | E |
 | Box | B |
 | Text | T |
+| Count | C |
 | Set Scale | S |
 | Linear measure | M |
 | Rect Area | Shift+R |
@@ -167,6 +125,16 @@ Per-page markup snapshots (`JSON.stringify`) pushed onto an undo stack before ea
 
 ---
 
+## Tech Stack
+- **Vite + TypeScript** — no framework, 100% client-side
+- **pdfjs-dist 4.x** — PDF rendering
+- **Konva.js** — vector markup canvas with Transformer for selection/resize
+- **pdf-lib** — PDF export (composite render: PDF background + Konva overlay)
+- **idb** — IndexedDB autosave
+- **Tauri 2.x** — native desktop packaging with native file dialogs
+
+---
+
 ## File Structure
 
 ```
@@ -182,7 +150,7 @@ src/
   pdf/renderer.ts        pdfjs-dist integration
   canvas/stage.ts        Konva stage manager + shape factory
   tools/                 One file per tool (select, pen, line, arrow, rect,
-                         ellipse, box, text, measureLinear, measureRect,
+                         ellipse, box, text, count, measureLinear, measureRect,
                          measurePoly, scaleSet, pan)
   ui/
     toolbar.ts           Toolbar init + state sync

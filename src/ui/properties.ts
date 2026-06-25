@@ -157,7 +157,7 @@ function renderPanel(panel: HTMLElement, state: typeof appState.state): void {
 
   const typesSet = new Set(effectiveTypes);
 
-  const strokeTypes: MarkupType[] = ['pen', 'line', 'arrow', 'rect', 'ellipse', 'box', 'measure-linear', 'measure-rect', 'measure-poly'];
+  const strokeTypes: MarkupType[] = ['pen', 'line', 'arrow', 'ellipse', 'box', 'measure-linear', 'measure-rect', 'measure-poly'];
   const fillTypes: MarkupType[] = ['box'];
   const textTypes: MarkupType[] = ['text'];
   const measureSelectedTypes: MarkupType[] = ['measure-linear', 'measure-rect', 'measure-poly'];
@@ -169,7 +169,7 @@ function renderPanel(panel: HTMLElement, state: typeof appState.state): void {
 
   // Label for the stroke/border section:
   // call it "Border" when the selection contains only rect/box types (and no pen/line etc.)
-  const borderOnlyTypes = new Set<MarkupType>(['rect', 'box']);
+  const borderOnlyTypes = new Set<MarkupType>(['box']);
   const strokeSectionLabel =
     showStroke && [...typesSet].filter(t => strokeTypes.includes(t)).every(t => borderOnlyTypes.has(t))
       ? 'Border'
@@ -398,7 +398,6 @@ function markupTypeLabel(type: MarkupType): string {
     pen: 'Pen',
     line: 'Line',
     arrow: 'Arrow',
-    rect: 'Rectangle',
     ellipse: 'Ellipse',
     box: 'Box',
     text: 'Text',

@@ -20,7 +20,6 @@ import { PanTool } from './tools/panTool.ts';
 import { PenTool } from './tools/penTool.ts';
 import { LineTool } from './tools/lineTool.ts';
 import { ArrowTool } from './tools/arrowTool.ts';
-import { RectTool } from './tools/rectTool.ts';
 import { EllipseTool } from './tools/ellipseTool.ts';
 import { BoxTool } from './tools/boxTool.ts';
 import { TextTool } from './tools/textTool.ts';
@@ -199,7 +198,7 @@ function styleKeyAppliesTo(key: string, type: import('./model/document.ts').Mark
   const strokeKeys = ['strokeColor', 'strokeWidth', 'strokeOpacity'];
   const fillKeys = ['fillColor', 'fillOpacity'];
   const textKeys = ['textColor', 'bgColor', 'bgOpacity', 'fontFamily', 'fontSize', 'bold', 'italic'];
-  const strokeTypes: import('./model/document.ts').MarkupType[] = ['pen', 'line', 'arrow', 'rect', 'ellipse', 'box', 'measure-linear', 'measure-rect', 'measure-poly'];
+  const strokeTypes: import('./model/document.ts').MarkupType[] = ['pen', 'line', 'arrow', 'ellipse', 'box', 'measure-linear', 'measure-rect', 'measure-poly'];
   const fillTypes: import('./model/document.ts').MarkupType[] = ['box'];
   const textTypes: import('./model/document.ts').MarkupType[] = ['text'];
 
@@ -580,7 +579,6 @@ function createTool(type: ToolType): BaseTool | null {
     case 'pen':    return new PenTool(ctx);
     case 'line':   return new LineTool(ctx);
     case 'arrow':  return new ArrowTool(ctx);
-    case 'rect':   return new RectTool(ctx);
     case 'ellipse': return new EllipseTool(ctx);
     case 'box':    return new BoxTool(ctx);
     case 'text':   return new TextTool(ctx);
@@ -827,7 +825,7 @@ function setupKeyboardShortcuts(): void {
     if (!ctrl) {
       const toolKeys: Record<string, ToolType> = {
         'v': 'select', 'h': 'pan', 'p': 'pen', 'l': 'line', 'a': 'arrow',
-        'r': 'rect', 'e': 'ellipse', 'b': 'box', 't': 'text',
+        'e': 'ellipse', 'b': 'box', 't': 'text',
         's': 'scale-set', 'm': 'measure-linear', 'c': 'count',
       };
       if (e.shiftKey) {

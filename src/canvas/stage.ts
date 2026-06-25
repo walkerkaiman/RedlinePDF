@@ -1,5 +1,5 @@
 import Konva from 'konva';
-import type { Markup, PenMarkup, LineMarkup, ArrowMarkup, RectMarkup, EllipseMarkup, BoxMarkup, TextMarkup, MeasureLinearMarkup, MeasureRectMarkup, MeasurePolyMarkup, CountMarkup, CountLegendMarkup, CountSymbol, Point } from '../model/document.ts';
+import type { Markup, PenMarkup, LineMarkup, ArrowMarkup, EllipseMarkup, BoxMarkup, TextMarkup, MeasureLinearMarkup, MeasureRectMarkup, MeasurePolyMarkup, CountMarkup, CountLegendMarkup, CountSymbol, Point } from '../model/document.ts';
 import { pdfToKonva, pdfPointsToKonva, pdfRectToKonva, konvaPointsToPdf, konvaRectToPdf, konvaToPdf } from '../geometry/transform.ts';
 
 export interface KonvaStageManager {
@@ -147,22 +147,6 @@ export function createMarkupNode(markup: Markup, pageHeightPts: number): Konva.N
       break;
     }
 
-    case 'rect': {
-      const m = markup as RectMarkup;
-      const r = pdfRectToKonva(m.x, m.y, m.width, m.height, pageHeightPts);
-      node = new Konva.Rect({
-        name: 'markup',
-        id: markup.id,
-        ...r,
-        stroke: strokeColor,
-        strokeWidth,
-        opacity: strokeOpacity,
-        fill: 'transparent',
-        hitStrokeWidth: Math.max(10, strokeWidth),
-      });
-      break;
-    }
-
     case 'ellipse': {
       const m = markup as EllipseMarkup;
       const center = pdfToKonva(m.cx, m.cy, pageHeightPts);
@@ -189,9 +173,8 @@ export function createMarkupNode(markup: Markup, pageHeightPts: number): Konva.N
         name: 'markup',
         id: markup.id,
         ...r,
-        stroke: strokeColor,
+        stroke: hexWithOpacity(strokeColor, strokeOpacity),
         strokeWidth,
-        strokeOpacity,
         fill: hexWithOpacity(fillColor, fillOpacity),
         hitStrokeWidth: Math.max(10, strokeWidth),
       });
@@ -568,9 +551,8 @@ export function createStage(containerId: string, width: number, height: number, 
           line.x(0); line.y(0); line.scaleX(1); line.scaleY(1); line.points(b);
           break;
         }
-        case 'rect':
         case 'box': {
-          const m = markup as RectMarkup | BoxMarkup;
+          const m = markup as BoxMarkup;
           const rect = node as Konva.Rect;
           const kw = rect.width() * sx;
           const kh = rect.height() * sy;
