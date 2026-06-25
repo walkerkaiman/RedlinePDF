@@ -6,8 +6,9 @@ import { initToolbar, showCanvas, updateCursorStatus } from './ui/toolbar.ts';
 import { initPropertiesPanel } from './ui/properties.ts';
 import { showModal, showExportOptionsDialog } from './ui/modal.ts';
 import { showWorking, hideWorking, updateWorking } from './ui/working.ts';
-import { autosaveProject, loadAutosave, exportProjectFile, importProjectFile, saveWithFilePicker, openSaveFilePicker, writeFileHandle, triggerDownload } from './storage/projectStore.ts';
-import { isTauri, openPdfFileNative, saveFileNative, openProjectFileNative } from './tauri/integration.ts';
+import { autosaveProject, loadAutosave, importProjectFile, saveWithFilePicker, openSaveFilePicker, writeFileHandle, triggerDownload, cacheRecentFile, getCachedRecentFile, removeCachedRecentFile } from './storage/projectStore.ts';
+import { isTauri, openPdfFileNative, saveFileNative, openProjectFileNative, openRecentPdfNative, openRecentProjectNative } from './tauri/integration.ts';
+import { getRecentPdfs, getRecentProjects, addRecentPdf, addRecentProject, removeRecentPdf, removeRecentProject } from './storage/recentFiles.ts';
 import { exportRedlinedPdf } from './export/exportPdf.ts';
 import { computeScale } from './measure/scale.ts';
 import { formatLinear, formatArea } from './measure/units.ts';
@@ -415,7 +416,7 @@ function scheduleAutosave(): void {
 
 // ── PDF loading ───────────────────────────────────────────────────────────────
 
-async function loadPdfFile(bytes: Uint8Array, fileName: string): Promise<void> {
+async function loadPdfFile(bytes: Uint8Array, fileName: string, filePath: string | null = null): Promise<void> {
   showWorking('Loading PDF…');
   try {
   // Destroy previous
@@ -450,6 +451,15 @@ async function loadPdfFile(bytes: Uint8Array, fileName: string): Promise<void> {
     undoAvailable: false,
     redoAvailable: false,
   });
+
+  // Record in recent files; cache bytes in browser (no OS path available)
+  let cacheKey: string | null = null;
+  if (!filePath) {
+    cacheKey = crypto.randomUUID();
+    await cacheRecentFile(cacheKey, bytes);
+  }
+  addRecentPdf({ name: fileName, path: filePath, openedAt: Date.now(), cacheKey });
+  refreshRecentMenus();
 
   // Show canvas BEFORE renderPage so clientWidth/Height are correct
   showCanvas(true);
@@ -666,7 +676,7 @@ function recalculateMeasureLabels(): void {
 async function handleOpenPdf(): Promise<void> {
   if (isTauri()) {
     const result = await openPdfFileNative();
-    if (result) await loadPdfFile(result.bytes, result.name);
+    if (result) await loadPdfFile(result.bytes, result.name, result.path);
   } else {
     document.getElementById('file-input-pdf')?.click();
   }
@@ -674,10 +684,10 @@ async function handleOpenPdf(): Promise<void> {
 
 async function handleOpenProject(): Promise<void> {
   if (isTauri()) {
-    const file = await openProjectFileNative();
-    if (file) {
-      const { project: p, pdfBytes: b } = await importProjectFile(file);
-      await loadPdfFromProject(p, b);
+    const result = await openProjectFileNative();
+    if (result) {
+      const { project: p, pdfBytes: b } = await importProjectFile(result.file);
+      await loadPdfFromProject(p, b, result.file.name, result.path);
     }
   } else {
     document.getElementById('file-input-project')?.click();
@@ -728,10 +738,10 @@ async function handleDroppedFile(file: File): Promise<void> {
   try {
     if (file.name.endsWith('.pdf')) {
       const bytes = new Uint8Array(await file.arrayBuffer());
-      await loadPdfFile(bytes, file.name);
+      await loadPdfFile(bytes, file.name, null);
     } else if (file.name.endsWith('.redline')) {
       const { project: p, pdfBytes: b } = await importProjectFile(file);
-      await loadPdfFromProject(p, b);
+      await loadPdfFromProject(p, b, file.name, null);
     }
   } finally {
     hideWorking();
@@ -766,13 +776,13 @@ function setupDragDrop(): void {
         try {
           if (name.endsWith('.pdf')) {
             const bytes = await readFile(path);
-            await loadPdfFile(new Uint8Array(bytes), name);
+            await loadPdfFile(new Uint8Array(bytes), name, path);
           } else if (name.endsWith('.redline')) {
             const text = await readTextFile(path);
             const blob = new Blob([text], { type: 'application/json' });
             const file = new File([blob], name, { type: 'application/json' });
             const { project: p, pdfBytes: byt } = await importProjectFile(file);
-            await loadPdfFromProject(p, byt);
+            await loadPdfFromProject(p, byt, name, path);
           }
         } finally {
           hideWorking();
@@ -803,7 +813,7 @@ function setupFileInputs(): void {
     const file = projectInput.files?.[0];
     if (!file) return;
     const { project: p, pdfBytes: b } = await importProjectFile(file);
-    await loadPdfFromProject(p, b);
+    await loadPdfFromProject(p, b, file.name, null);
     projectInput.value = '';
   });
 
@@ -873,7 +883,7 @@ function setupFileInputs(): void {
   });
 }
 
-async function loadPdfFromProject(p: ProjectData, b: Uint8Array): Promise<void> {
+async function loadPdfFromProject(p: ProjectData, b: Uint8Array, projectFileName: string | null = null, projectFilePath: string | null = null): Promise<void> {
   showWorking('Opening project…');
   try {
     project = p;
@@ -887,7 +897,7 @@ async function loadPdfFromProject(p: ProjectData, b: Uint8Array): Promise<void> 
     pdfRenderer = await loadPdf(b);
     undoStack.length = 0;
     redoStack.length = 0;
-    lastSavedProjectPath = null; // opened from picker — save path not yet known
+    lastSavedProjectPath = projectFilePath; // if opened from recent, path is already known
     appState.update({
       hasPdf: true,
       totalPages: pdfRenderer.numPages,
@@ -897,6 +907,18 @@ async function loadPdfFromProject(p: ProjectData, b: Uint8Array): Promise<void> 
       undoAvailable: false,
       redoAvailable: false,
     });
+
+    // Record in recent files; cache file bytes in browser (no OS path available)
+    const displayName = projectFileName ?? p.pdfFileName?.replace(/\.pdf$/i, '.redline') ?? 'project.redline';
+    let projCacheKey: string | null = null;
+    if (!projectFilePath) {
+      projCacheKey = crypto.randomUUID();
+      const { buildRedlinePayload } = await import('./storage/projectStore.ts');
+      const payload = buildRedlinePayload(p, b);
+      await cacheRecentFile(projCacheKey, new TextEncoder().encode(payload));
+    }
+    addRecentProject({ name: displayName, path: projectFilePath, openedAt: Date.now(), cacheKey: projCacheKey });
+    refreshRecentMenus();
 
     showCanvas(true);
     updateWorking('Rendering page…');
@@ -1172,6 +1194,165 @@ function setupStateListeners(): void {
 
 // ── Bootstrap ─────────────────────────────────────────────────────────────────
 
+// ── Recent files menus ────────────────────────────────────────────────────────
+
+function formatRelativeTime(ms: number): string {
+  const diff = Date.now() - ms;
+  const min  = Math.floor(diff / 60_000);
+  const hr   = Math.floor(diff / 3_600_000);
+  const day  = Math.floor(diff / 86_400_000);
+  if (min < 1)   return 'just now';
+  if (min < 60)  return `${min}m ago`;
+  if (hr  < 24)  return `${hr}h ago`;
+  if (day < 7)   return `${day}d ago`;
+  return new Date(ms).toLocaleDateString();
+}
+
+function buildRecentMenu(
+  menuEl: HTMLElement,
+  entries: import('./storage/recentFiles.ts').RecentEntry[],
+  onOpen: (entry: import('./storage/recentFiles.ts').RecentEntry) => void,
+  emptyLabel: string,
+): void {
+  menuEl.innerHTML = '';
+  if (entries.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'tb-recent-empty';
+    empty.textContent = emptyLabel;
+    menuEl.appendChild(empty);
+    return;
+  }
+  const header = document.createElement('div');
+  header.className = 'tb-recent-header';
+  header.textContent = 'Recent';
+  menuEl.appendChild(header);
+  entries.forEach(entry => {
+    const item = document.createElement('div');
+    item.className = 'tb-recent-item';
+    item.setAttribute('role', 'menuitem');
+    item.setAttribute('tabindex', '0');
+    const name = document.createElement('div');
+    name.className = 'tb-recent-item-name';
+    name.textContent = entry.name;
+    name.title = entry.path ?? entry.name;
+    const meta = document.createElement('div');
+    meta.className = 'tb-recent-item-meta';
+    meta.textContent = entry.path
+      ? entry.path + '  ·  ' + formatRelativeTime(entry.openedAt)
+      : formatRelativeTime(entry.openedAt);
+    item.appendChild(name);
+    item.appendChild(meta);
+    item.addEventListener('click', () => onOpen(entry));
+    item.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') onOpen(entry); });
+    menuEl.appendChild(item);
+  });
+}
+
+function refreshRecentMenus(): void {
+  const pdfMenu = document.getElementById('recent-pdf-menu');
+  const projMenu = document.getElementById('recent-project-menu');
+  if (pdfMenu) {
+    buildRecentMenu(pdfMenu, getRecentPdfs(), async (entry) => {
+      if (isTauri() && entry.path) {
+        // Tauri: read from OS path
+        const result = await openRecentPdfNative(entry.path);
+        if (result) {
+          await loadPdfFile(result.bytes, result.name, entry.path);
+        } else {
+          removeRecentPdf(entry.path, entry.name);
+          refreshRecentMenus();
+          showToast(`File not found: ${entry.name}`, 'warn', 4000);
+        }
+      } else if (entry.cacheKey) {
+        // Browser: load from IndexedDB cache
+        const bytes = await getCachedRecentFile(entry.cacheKey);
+        if (bytes) {
+          await loadPdfFile(bytes, entry.name, null);
+        } else {
+          removeRecentPdf(null, entry.name);
+          refreshRecentMenus();
+          showToast(`Cached file expired: ${entry.name}`, 'warn', 4000);
+        }
+      } else {
+        handleOpenPdf();
+      }
+    }, 'No recent PDFs');
+  }
+  if (projMenu) {
+    buildRecentMenu(projMenu, getRecentProjects(), async (entry) => {
+      if (isTauri() && entry.path) {
+        // Tauri: read from OS path
+        const file = await openRecentProjectNative(entry.path);
+        if (file) {
+          const { project: p, pdfBytes: b } = await importProjectFile(file);
+          await loadPdfFromProject(p, b, entry.name, entry.path);
+        } else {
+          removeRecentProject(entry.path, entry.name);
+          refreshRecentMenus();
+          showToast(`File not found: ${entry.name}`, 'warn', 4000);
+        }
+      } else if (entry.cacheKey) {
+        // Browser: load from IndexedDB cache
+        const bytes = await getCachedRecentFile(entry.cacheKey);
+        if (bytes) {
+          const text = new TextDecoder().decode(bytes);
+          const blob = new Blob([text], { type: 'application/json' });
+          const file = new File([blob], entry.name, { type: 'application/json' });
+          const { project: p, pdfBytes: b } = await importProjectFile(file);
+          await loadPdfFromProject(p, b, entry.name, null);
+        } else {
+          removeRecentProject(null, entry.name);
+          refreshRecentMenus();
+          showToast(`Cached file expired: ${entry.name}`, 'warn', 4000);
+        }
+      } else {
+        handleOpenProject();
+      }
+    }, 'No recent projects');
+  }
+}
+
+function setupRecentMenus(): void {
+  refreshRecentMenus();
+
+  // JS-driven hover: use a hide-delay so the cursor can travel from the button
+  // to the fixed-position menu without the menu disappearing in between.
+  (['wrap-open-pdf', 'wrap-open-project'] as const).forEach(wrapperId => {
+    const menuId = wrapperId === 'wrap-open-pdf' ? 'recent-pdf-menu' : 'recent-project-menu';
+    const wrap = document.getElementById(wrapperId);
+    const menu = document.getElementById(menuId);
+    if (!wrap || !menu) return;
+
+    let hideTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const showMenu = () => {
+      if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
+      // Only show if there are items (menu is non-empty)
+      if (!menu.firstChild) return;
+      const rect = wrap.getBoundingClientRect();
+      menu.style.top  = `${rect.bottom + 2}px`;
+      menu.style.left = `${rect.left}px`;
+      menu.classList.add('tb-recent-visible');
+    };
+
+    const scheduleHide = () => {
+      hideTimer = setTimeout(() => {
+        menu.classList.remove('tb-recent-visible');
+        hideTimer = null;
+      }, 120);
+    };
+
+    wrap.addEventListener('mouseenter', showMenu);
+    wrap.addEventListener('mouseleave', scheduleHide);
+    menu.addEventListener('mouseenter', () => {
+      if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
+    });
+    menu.addEventListener('mouseleave', scheduleHide);
+  });
+}
+
+// ── Bootstrap ─────────────────────────────────────────────────────────────────
+
 async function init(): Promise<void> {
   initToolbar();
   initPropertiesPanel();
@@ -1179,6 +1360,7 @@ async function init(): Promise<void> {
   setupFileInputs();
   setupKeyboardShortcuts();
   setupStateListeners();
+  setupRecentMenus();
 
   // Select tool is default
   appState.setTool('select');

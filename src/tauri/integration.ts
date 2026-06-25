@@ -18,23 +18,57 @@ export function isTauri(): boolean {
 }
 
 /**
- * Open a native "Open PDF" dialog and return the file bytes + name.
+ * Open a native "Open PDF" dialog and return the file bytes, name, and path.
  * Returns null in a browser (handled by <input type="file">).
  */
-export async function openPdfFileNative(): Promise<{ bytes: Uint8Array; name: string } | null> {
+export async function openPdfFileNative(): Promise<{ bytes: Uint8Array; name: string; path: string } | null> {
   if (!isTauri()) return null;
   try {
-    const path = await open({
+    const selected = await open({
       title: 'Open PDF',
       filters: [{ name: 'PDF Files', extensions: ['pdf'] }],
       multiple: false,
     });
-    if (!path || Array.isArray(path)) return null;
+    if (!selected || Array.isArray(selected)) return null;
+    const path = selected as string;
     const bytes = await readFile(path);
-    const name = (path as string).split(/[\\/]/).pop() ?? 'document.pdf';
-    return { bytes: new Uint8Array(bytes), name };
+    const name = path.split(/[\\/]/).pop() ?? 'document.pdf';
+    return { bytes: new Uint8Array(bytes), name, path };
   } catch (err) {
     console.error('Tauri file open failed:', err);
+    return null;
+  }
+}
+
+/**
+ * Open a PDF from a known path (used for Recent Files).
+ * Returns null if the file cannot be read (e.g. moved or deleted).
+ */
+export async function openRecentPdfNative(path: string): Promise<{ bytes: Uint8Array; name: string } | null> {
+  if (!isTauri()) return null;
+  try {
+    const bytes = await readFile(path);
+    const name = path.split(/[\\/]/).pop() ?? 'document.pdf';
+    return { bytes: new Uint8Array(bytes), name };
+  } catch (err) {
+    console.error('Tauri recent PDF open failed:', err);
+    return null;
+  }
+}
+
+/**
+ * Open a .redline project from a known path (used for Recent Files).
+ * Returns null if the file cannot be read.
+ */
+export async function openRecentProjectNative(path: string): Promise<File | null> {
+  if (!isTauri()) return null;
+  try {
+    const text = await readTextFile(path);
+    const blob = new Blob([text], { type: 'application/json' });
+    const name = path.split(/[\\/]/).pop() ?? 'project.redline';
+    return new File([blob], name, { type: 'application/json' });
+  } catch (err) {
+    console.error('Tauri recent project open failed:', err);
     return null;
   }
 }
@@ -66,22 +100,23 @@ export async function saveFileNative(
 }
 
 /**
- * Open a native "Open Project" (.redline) dialog and return a File object.
+ * Open a native "Open Project" (.redline) dialog and return a File object + path.
  * Returns null in a browser.
  */
-export async function openProjectFileNative(): Promise<File | null> {
+export async function openProjectFileNative(): Promise<{ file: File; path: string } | null> {
   if (!isTauri()) return null;
   try {
-    const path = await open({
+    const selected = await open({
       title: 'Open Project',
       filters: [{ name: 'RedlinePDF Projects', extensions: ['redline'] }],
       multiple: false,
     });
-    if (!path || Array.isArray(path)) return null;
-    const text = await readTextFile(path as string);
+    if (!selected || Array.isArray(selected)) return null;
+    const path = selected as string;
+    const text = await readTextFile(path);
     const blob = new Blob([text], { type: 'application/json' });
-    const name = (path as string).split(/[\\/]/).pop() ?? 'project.redline';
-    return new File([blob], name, { type: 'application/json' });
+    const name = path.split(/[\\/]/).pop() ?? 'project.redline';
+    return { file: new File([blob], name, { type: 'application/json' }), path };
   } catch (err) {
     console.error('Tauri project open failed:', err);
     return null;

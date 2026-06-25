@@ -2,9 +2,10 @@ import { openDB, type IDBPDatabase } from 'idb';
 import type { ProjectData } from '../model/document.ts';
 
 const DB_NAME = 'redlinepdf';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE_PROJECT = 'project';
 const STORE_PDF = 'pdfBytes';
+const STORE_RECENT_CACHE = 'recentCache';
 const AUTOSAVE_KEY = 'autosave';
 
 interface ProjectRecord {
@@ -18,6 +19,11 @@ interface PdfRecord {
   bytes: Uint8Array;
 }
 
+interface RecentCacheRecord {
+  key: string;       // UUID matching RecentEntry.cacheKey
+  bytes: Uint8Array; // raw file bytes (PDF or .redline as UTF-8)
+}
+
 async function getDb(): Promise<IDBPDatabase> {
   return openDB(DB_NAME, DB_VERSION, {
     upgrade(db) {
@@ -27,8 +33,31 @@ async function getDb(): Promise<IDBPDatabase> {
       if (!db.objectStoreNames.contains(STORE_PDF)) {
         db.createObjectStore(STORE_PDF, { keyPath: 'key' });
       }
+      if (!db.objectStoreNames.contains(STORE_RECENT_CACHE)) {
+        db.createObjectStore(STORE_RECENT_CACHE, { keyPath: 'key' });
+      }
     },
   });
+}
+
+/** Store raw file bytes in the recent-files cache. Returns the cache key. */
+export async function cacheRecentFile(key: string, bytes: Uint8Array): Promise<void> {
+  const db = await getDb();
+  const record: RecentCacheRecord = { key, bytes };
+  await db.put(STORE_RECENT_CACHE, record);
+}
+
+/** Retrieve raw file bytes from the recent-files cache. Returns null if not found. */
+export async function getCachedRecentFile(key: string): Promise<Uint8Array | null> {
+  const db = await getDb();
+  const record = await db.get(STORE_RECENT_CACHE, key) as RecentCacheRecord | undefined;
+  return record?.bytes ?? null;
+}
+
+/** Remove a single entry from the recent-files cache. */
+export async function removeCachedRecentFile(key: string): Promise<void> {
+  const db = await getDb();
+  await db.delete(STORE_RECENT_CACHE, key);
 }
 
 /** Save project model + PDF bytes to IndexedDB (autosave slot) */

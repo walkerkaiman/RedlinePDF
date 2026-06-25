@@ -44,7 +44,10 @@ html, body { height: 100%; overflow: hidden; }
   padding: 0 6px;
   gap: 0;
   overflow-x: hidden;     /* no scrollbar needed */
+  overflow-y: visible;    /* allow recent-file dropdowns to extend below */
   flex-shrink: 0;
+  position: relative;
+  z-index: 200;           /* sit above canvas/konva layer */
 }
 
 .toolbar-group {
@@ -146,6 +149,73 @@ html, body { height: 100%; overflow: hidden; }
 }
 .tb-btn-sm:hover:not(:disabled) { background: var(--bg-hover); }
 .tb-btn-sm:disabled { opacity: 0.35; cursor: not-allowed; }
+
+/* ── Recent files hover menu ─────────────────────────────────────────────── */
+.tb-recent-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.tb-recent-menu {
+  display: none;
+  position: fixed;   /* fixed avoids clipping by overflow-x:hidden on toolbar */
+  min-width: 240px;
+  max-width: 380px;
+  background: var(--bg-light);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.4);
+  z-index: 9000;
+  overflow: hidden;
+}
+
+.tb-recent-menu.tb-recent-visible { display: block; }
+
+.tb-recent-header {
+  padding: 6px 10px 4px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--border);
+}
+
+.tb-recent-item {
+  display: flex;
+  flex-direction: column;
+  padding: 7px 10px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border);
+  gap: 2px;
+}
+
+.tb-recent-item:last-child { border-bottom: none; }
+
+.tb-recent-item:hover { background: var(--bg-hover); }
+
+.tb-recent-item-name {
+  font-size: 12px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tb-recent-item-meta {
+  font-size: 10px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tb-recent-empty {
+  padding: 10px;
+  font-size: 11px;
+  color: var(--text-dim);
+  text-align: center;
+}
 
 .tb-page-nav {
   display: flex;
