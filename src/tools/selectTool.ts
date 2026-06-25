@@ -132,6 +132,17 @@ export class SelectTool extends BaseTool {
       interactionLayer.draw();
     });
 
+    // Double-click on a text markup → open inline editor
+    stage.on('dblclick.select dbltap.select', (e) => {
+      let walk: Konva.Node | null = e.target;
+      while (walk && walk !== stage) {
+        if (walk.hasName('markup')) break;
+        walk = walk.getParent?.() ?? null;
+      }
+      if (!walk || !walk.hasName('markup')) return;
+      appState.emit('cmd-text-edit', { id: walk.id() });
+    });
+
     // Listen for transformer changes (move/resize)
     this.transformer.on('transformstart dragstart', () => {
       // Snapshot BEFORE the operation so it can be fully undone.
@@ -161,6 +172,7 @@ export class SelectTool extends BaseTool {
     stage.off('mousedown.select touchstart.select');
     stage.off('mousemove.select touchmove.select');
     stage.off('mouseup.select touchend.select');
+    stage.off('dblclick.select dbltap.select');
 
     if (this.transformer) {
       this.transformer.nodes([]);
@@ -212,6 +224,9 @@ export class SelectTool extends BaseTool {
       .map(id => this.ctx.stageManager.findNode(id))
       .filter(Boolean) as Konva.Shape[];
     if (nodes.length > 0) {
+      // Ensure draggable is restored on any rebuilt nodes (e.g. after a style
+      // change that calls updateMarkupNode and creates a fresh Konva node).
+      nodes.forEach(n => n.draggable(true));
       this.transformer.nodes(nodes);
       this.ctx.stageManager.interactionLayer.draw();
     }

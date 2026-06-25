@@ -22,10 +22,15 @@ export async function exportRedlinedPdf(
   _originalPdfBytes: Uint8Array,
   pdfRenderer: PdfRenderer,
   exportScale = 2,
+  pageIndices: number[] | null = null,
 ): Promise<Uint8Array> {
   const pdfDoc = await PDFDocument.create();
 
-  for (const pageData of project.pages) {
+  const pagesToExport = pageIndices
+    ? project.pages.filter(p => pageIndices.includes(p.index))
+    : project.pages;
+
+  for (const pageData of pagesToExport) {
     // pdfjs dimensions are rotation-aware (e.g. a Rotate:90 portrait page
     // is reported as landscape widthPts > heightPts here).
     const { widthPts, heightPts } = await pdfRenderer.getPageSizePts(pageData.index);

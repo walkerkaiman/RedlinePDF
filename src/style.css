@@ -406,6 +406,26 @@ html, body { height: 100%; overflow: hidden; }
   color: var(--text);
   min-width: 28px;
   text-align: right;
+  cursor: default;
+}
+
+.slider-value-input {
+  font-size: 11px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  width: 52px;
+  text-align: right;
+  padding: 1px 3px;
+  outline: none;
+  /* Hide the browser spin buttons — value is validated on commit */
+  -moz-appearance: textfield;
+}
+.slider-value-input::-webkit-inner-spin-button,
+.slider-value-input::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
 }
 
 /* Color picker */
@@ -584,6 +604,69 @@ html, body { height: 100%; overflow: hidden; }
   border-top: 1px solid var(--border);
 }
 
+/* ── Export dialog shared section label ─────────────────────────────────── */
+.export-section-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-dim);
+  margin: 14px 0 4px;
+}
+.export-section-label:first-child { margin-top: 2px; }
+
+/* ── Export page-selection rows ──────────────────────────────────────────── */
+.page-options {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+
+.page-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  background: var(--bg-light);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text);
+  user-select: none;
+  transition: border-color .12s, background .12s;
+}
+
+.page-option:hover { background: var(--bg-hover); border-color: var(--accent-lt); }
+.page-option:has(input[type="radio"]:checked) { border-color: var(--accent); background: rgba(0,119,204,0.13); }
+
+.page-option input[type="radio"] {
+  margin: 0;
+  accent-color: var(--accent);
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+}
+
+.page-option-custom { flex-wrap: wrap; }
+
+.page-range-input {
+  flex: 1;
+  min-width: 120px;
+  margin-left: 4px;
+  padding: 3px 7px;
+  font-size: 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text);
+  outline: none;
+  transition: border-color .12s;
+}
+.page-range-input:focus { border-color: var(--accent); }
+.page-range-input:disabled { opacity: 0.4; cursor: not-allowed; }
+
 /* ── Export quality radio-cards ──────────────────────────────────────────── */
 .quality-options {
   display: flex;
@@ -666,6 +749,85 @@ html, body { height: 100%; overflow: hidden; }
   font-size: 11px;
   color: var(--text-dim);
   line-height: 1.4;
+}
+
+/* ── Working / loading overlay ──────────────────────────────────────────── */
+#working-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(3px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.18s ease;
+}
+
+#working-overlay.working-visible {
+  opacity: 1;
+  pointer-events: all;
+}
+
+#working-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  background: var(--bg-light);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 36px 44px;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.45);
+  min-width: 220px;
+  text-align: center;
+}
+
+#working-logo svg {
+  width: 52px;
+  height: 52px;
+  display: block;
+  border-radius: 10px;
+}
+
+#working-appname {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text-head);
+  letter-spacing: 0.3px;
+  margin-top: -4px;
+}
+
+#working-message {
+  font-size: 13px;
+  color: var(--text-dim);
+  min-height: 18px;
+}
+
+/* Four-dot spinner */
+#working-spinner {
+  position: relative;
+  width: 36px;
+  height: 36px;
+}
+#working-spinner div {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: working-spin 1.2s linear infinite;
+}
+#working-spinner div:nth-child(1) { top: 0;   left: 14px; animation-delay: 0s; }
+#working-spinner div:nth-child(2) { top: 14px; right: 0;  animation-delay: -0.9s; }
+#working-spinner div:nth-child(3) { bottom: 0; left: 14px; animation-delay: -0.6s; }
+#working-spinner div:nth-child(4) { top: 14px; left: 0;   animation-delay: -0.3s; }
+
+@keyframes working-spin {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.25; transform: scale(0.6); }
 }
 
 /* ── Scrollbar ───────────────────────────────────────────────────────────── */

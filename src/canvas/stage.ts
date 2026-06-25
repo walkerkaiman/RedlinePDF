@@ -157,10 +157,9 @@ export function createMarkupNode(markup: Markup, pageHeightPts: number): Konva.N
         y: center.y,
         radiusX: m.rx,
         radiusY: m.ry,
-        stroke: strokeColor,
+        stroke: hexWithOpacity(strokeColor, strokeOpacity),
         strokeWidth,
-        opacity: strokeOpacity,
-        fill: 'transparent',
+        fill: hexWithOpacity(fillColor, fillOpacity),
         hitStrokeWidth: Math.max(10, strokeWidth),
       });
       break;
@@ -183,25 +182,24 @@ export function createMarkupNode(markup: Markup, pageHeightPts: number): Konva.N
 
     case 'text': {
       const m = markup as TextMarkup;
-      const r = pdfRectToKonva(m.x, m.y, m.width, m.height, pageHeightPts);
+      const pos = pdfToKonva(m.x, m.y, pageHeightPts);
       const textStyle = style;
-      const group = new Konva.Group({ name: 'markup', id: markup.id, x: r.x, y: r.y });
+      const group = new Konva.Group({ name: 'markup', id: markup.id, x: pos.x, y: pos.y });
 
-      const bgRect = new Konva.Rect({
-        width: r.width,
-        height: r.height,
-        fill: hexWithOpacity(textStyle.bgColor ?? '#ffffff', textStyle.bgOpacity ?? 0.8),
-      });
+      // Render text at its natural content size — no fixed width/height constraint.
       const text = new Konva.Text({
         x: 4, y: 4,
-        width: r.width - 8,
-        height: r.height - 8,
         text: m.text,
         fontFamily: textStyle.fontFamily ?? 'Arial',
         fontSize: textStyle.fontSize ?? 12,
         fontStyle: [textStyle.bold ? 'bold' : '', textStyle.italic ? 'italic' : ''].filter(Boolean).join(' ') || 'normal',
         fill: textStyle.textColor ?? '#e63946',
-        wrap: 'word',
+      });
+      // Size the background rect to the text's natural dimensions
+      const bgRect = new Konva.Rect({
+        width: text.width() + 8,
+        height: text.height() + 8,
+        fill: hexWithOpacity(textStyle.bgColor ?? '#ffffff', textStyle.bgOpacity ?? 0.8),
       });
       group.add(bgRect, text);
       node = group;
@@ -572,17 +570,12 @@ export function createStage(containerId: string, width: number, height: number, 
           break;
         }
         case 'text': {
+          // Text boxes auto-size to content — only bake position, discard scale.
           const m = markup as TextMarkup;
-          const group = node as Konva.Group;
-          const bgRect = group.findOne<Konva.Rect>('Rect');
-          const kw = (bgRect ? bgRect.width() : m.width) * sx;
-          const kh = (bgRect ? bgRect.height() : m.height) * sy;
-          const pdf = konvaRectToPdf(tx, ty, kw, kh, h);
-          m.x = pdf.x; m.y = pdf.y; m.width = pdf.width; m.height = pdf.height;
-          if (bgRect) { bgRect.width(kw); bgRect.height(kh); }
-          const textShape = group.findOne<Konva.Text>('Text');
-          if (textShape) { textShape.width(Math.max(1, kw - 8)); textShape.height(Math.max(1, kh - 8)); }
-          group.scaleX(1); group.scaleY(1);
+          const pdfPos = konvaToPdf(tx, ty, h);
+          m.x = pdfPos.x; m.y = pdfPos.y;
+          node.x(tx); node.y(ty);
+          node.scaleX(1); node.scaleY(1);
           break;
         }
         case 'measure-linear': {

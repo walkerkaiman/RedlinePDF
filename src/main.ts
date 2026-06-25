@@ -5,6 +5,7 @@ import { createStage } from './canvas/stage.ts';
 import { initToolbar, showCanvas, updateCursorStatus } from './ui/toolbar.ts';
 import { initPropertiesPanel } from './ui/properties.ts';
 import { showModal, showExportOptionsDialog } from './ui/modal.ts';
+import { showWorking, hideWorking, updateWorking } from './ui/working.ts';
 import { autosaveProject, loadAutosave, exportProjectFile, importProjectFile, saveWithFilePicker, openSaveFilePicker, writeFileHandle, triggerDownload } from './storage/projectStore.ts';
 import { isTauri, openPdfFileNative, saveFileNative, openProjectFileNative } from './tauri/integration.ts';
 import { exportRedlinedPdf } from './export/exportPdf.ts';
@@ -153,6 +154,18 @@ function addMarkup(markup: Markup): void {
     (activeTool as SelectTool).refreshTransformerForNode(markup.id);
   }
 
+  // When a textarea blur triggers addMarkup, the same mousedown event that
+  // caused the blur continues to fire on the Konva stage, potentially clearing
+  // the transformer via rubber-band selection. Re-apply the selection one frame
+  // later so the markup is always left in an interactive state.
+  const addedId = markup.id;
+  requestAnimationFrame(() => {
+    if (activeTool instanceof SelectTool) {
+      appState.setSelection(addedId);
+      (activeTool as SelectTool).refreshTransformerForNode(addedId);
+    }
+  });
+
   scheduleAutosave();
 }
 
@@ -199,7 +212,7 @@ function styleKeyAppliesTo(key: string, type: import('./model/document.ts').Mark
   const fillKeys = ['fillColor', 'fillOpacity'];
   const textKeys = ['textColor', 'bgColor', 'bgOpacity', 'fontFamily', 'fontSize', 'bold', 'italic'];
   const strokeTypes: import('./model/document.ts').MarkupType[] = ['pen', 'line', 'arrow', 'ellipse', 'box', 'measure-linear', 'measure-rect', 'measure-poly'];
-  const fillTypes: import('./model/document.ts').MarkupType[] = ['box'];
+  const fillTypes: import('./model/document.ts').MarkupType[] = ['box', 'ellipse'];
   const textTypes: import('./model/document.ts').MarkupType[] = ['text'];
 
   if (strokeKeys.includes(key)) return strokeTypes.includes(type);
@@ -399,6 +412,8 @@ function scheduleAutosave(): void {
 // ── PDF loading ───────────────────────────────────────────────────────────────
 
 async function loadPdfFile(bytes: Uint8Array, fileName: string): Promise<void> {
+  showWorking('Loading PDF…');
+  try {
   // Destroy previous
   if (pdfRenderer) { pdfRenderer.destroy(); pdfRenderer = null; }
   stageManager?.stage.destroy();
@@ -433,7 +448,11 @@ async function loadPdfFile(bytes: Uint8Array, fileName: string): Promise<void> {
 
   // Show canvas BEFORE renderPage so clientWidth/Height are correct
   showCanvas(true);
+  updateWorking('Rendering page…');
   await renderPage(0);
+  } finally {
+    hideWorking();
+  }
 }
 
 async function renderPage(pageIndex: number): Promise<void> {
@@ -730,11 +749,20 @@ function setupFileInputs(): void {
   document.getElementById('btn-export-pdf')?.addEventListener('click', async () => {
     if (!pdfBytes) return;
 
-    // Step 1 — Ask user for quality. DOM modal does not consume user activation.
-    const exportOptions = await showExportOptionsDialog();
+    // Step 1 — Ask user for quality + page range. DOM modal does not consume user activation.
+    const totalPages = project.pages.length;
+    const currentPage = appState.state.activePageIndex;
+    const exportOptions = await showExportOptionsDialog(totalPages, currentPage);
     if (!exportOptions) return; // user cancelled
 
     const suggestedName = project.pdfFileName.replace(/\.pdf$/i, '') + '_redline.pdf';
+
+    // Show the working overlay now — it will stay visible through the file picker
+    // (the OS dialog floats above it) and throughout rendering.
+    const pageDesc = exportOptions.pageIndices
+      ? `${exportOptions.pageIndices.length} page${exportOptions.pageIndices.length > 1 ? 's' : ''}`
+      : `all ${totalPages} page${totalPages > 1 ? 's' : ''}`;
+    showWorking('Preparing export…');
 
     // Step 2 — Open the native file-save picker NOW, while the transient user-
     // activation from the quality-dialog "Export" click is still valid.
@@ -744,16 +772,19 @@ function setupFileInputs(): void {
     if (!isTauri()) {
       fileHandle = await openSaveFilePicker(suggestedName, 'PDF Files', { 'application/pdf': ['.pdf'] });
       // null + API present → user cancelled the picker
-      if (fileHandle === null && 'showSaveFilePicker' in window) return;
+      if (fileHandle === null && 'showSaveFilePicker' in window) { hideWorking(); return; }
     }
 
-    // Step 3 — Render. Activation is no longer needed from here on.
+    // Step 3 — Render.
     const btn = document.getElementById('btn-export-pdf') as HTMLButtonElement;
     btn.disabled = true;
-    btn.querySelector('span')!.textContent = `Exporting at ${exportOptions.dpi} DPI…`;
+    updateWorking(`Rendering ${pageDesc} at ${exportOptions.dpi} DPI…`);
     try {
       if (!pdfRenderer) throw new Error('No PDF loaded');
-      const outputBytes = await exportRedlinedPdf(project, pdfBytes, pdfRenderer, exportOptions.scale);
+      const outputBytes = await exportRedlinedPdf(
+        project, pdfBytes, pdfRenderer, exportOptions.scale, exportOptions.pageIndices,
+      );
+      updateWorking('Saving file…');
       if (isTauri()) {
         await saveFileNative(outputBytes, suggestedName, 'pdf', 'PDF Files');
       } else if (fileHandle) {
@@ -767,37 +798,44 @@ function setupFileInputs(): void {
     } finally {
       btn.disabled = false;
       btn.querySelector('span')!.textContent = 'Export PDF';
+      hideWorking();
     }
   });
 }
 
 async function loadPdfFromProject(p: ProjectData, b: Uint8Array): Promise<void> {
-  project = p;
-  // Normalize pages from older project files that predate countCategories
-  project.pages.forEach(pg => { pg.countCategories ??= []; });
-  pdfBytes = b;
-  if (pdfRenderer) { pdfRenderer.destroy(); pdfRenderer = null; }
-  stageManager?.stage.destroy();
-  stageManager = null;
+  showWorking('Opening project…');
+  try {
+    project = p;
+    // Normalize pages from older project files that predate countCategories
+    project.pages.forEach(pg => { pg.countCategories ??= []; });
+    pdfBytes = b;
+    if (pdfRenderer) { pdfRenderer.destroy(); pdfRenderer = null; }
+    stageManager?.stage.destroy();
+    stageManager = null;
 
-  pdfRenderer = await loadPdf(b);
-  undoStack.length = 0;
-  redoStack.length = 0;
-  appState.update({
-    hasPdf: true,
-    totalPages: pdfRenderer.numPages,
-    activePageIndex: 0,
-    zoom: 1,
-    units: { ...p.units },
-    undoAvailable: false,
-    redoAvailable: false,
-  });
+    pdfRenderer = await loadPdf(b);
+    undoStack.length = 0;
+    redoStack.length = 0;
+    appState.update({
+      hasPdf: true,
+      totalPages: pdfRenderer.numPages,
+      activePageIndex: 0,
+      zoom: 1,
+      units: { ...p.units },
+      undoAvailable: false,
+      redoAvailable: false,
+    });
 
-  showCanvas(true);
-  await renderPage(0);
-  pushCountSummary();
-  const firstPage = currentPage();
-  if (firstPage && firstPage.countCategories.length > 0) refreshLegend(firstPage);
+    showCanvas(true);
+    updateWorking('Rendering page…');
+    await renderPage(0);
+    pushCountSummary();
+    const firstPage = currentPage();
+    if (firstPage && firstPage.countCategories.length > 0) refreshLegend(firstPage);
+  } finally {
+    hideWorking();
+  }
 }
 
 // ── Keyboard shortcuts ────────────────────────────────────────────────────────
@@ -986,6 +1024,16 @@ function setupStateListeners(): void {
   appState.on('cmd-count-set-size', (data) => {
     const { size } = data as { size: number };
     setCountSymbolSize(size);
+  });
+  appState.on('cmd-text-edit', (data) => {
+    const { id } = data as { id: string };
+    const page = currentPage();
+    const markup = page?.markups.find(m => m.id === id);
+    if (!markup || markup.type !== 'text') return;
+    if (!(activeTool instanceof TextTool)) appState.setTool('text');
+    if (activeTool instanceof TextTool) {
+      (activeTool as TextTool).editExisting(markup as import('./model/document.ts').TextMarkup);
+    }
   });
   appState.on('cmd-fit-width', async () => {
     if (!pdfRenderer || !stageManager) return;

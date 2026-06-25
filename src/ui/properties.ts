@@ -158,7 +158,7 @@ function renderPanel(panel: HTMLElement, state: typeof appState.state): void {
   const typesSet = new Set(effectiveTypes);
 
   const strokeTypes: MarkupType[] = ['pen', 'line', 'arrow', 'ellipse', 'box', 'measure-linear', 'measure-rect', 'measure-poly'];
-  const fillTypes: MarkupType[] = ['box'];
+  const fillTypes: MarkupType[] = ['box', 'ellipse'];
   const textTypes: MarkupType[] = ['text'];
   const measureSelectedTypes: MarkupType[] = ['measure-linear', 'measure-rect', 'measure-poly'];
 
@@ -426,6 +426,7 @@ function createSliderRow(
   onChange: (v: number) => void,
   unit = ''
 ): HTMLElement {
+  const isPercent = unit === '%';
   const row = document.createElement('div');
   row.className = 'prop-row';
   const id = `prop-slider-${label.toLowerCase().replace(/\s/g, '-')}-${Math.random().toString(36).slice(2, 5)}`;
@@ -433,15 +434,55 @@ function createSliderRow(
     <label for="${id}">${label}</label>
     <div class="slider-group">
       <input type="range" id="${id}" min="${min}" max="${max}" step="${step}" value="${value}" />
-      <span class="slider-value">${value}${unit}</span>
+      <span class="slider-value" title="Double-click to type a value">${value}${unit}</span>
     </div>`;
-  const input = row.querySelector<HTMLInputElement>('input[type="range"]')!;
+  const rangeInput = row.querySelector<HTMLInputElement>('input[type="range"]')!;
   const display = row.querySelector<HTMLSpanElement>('.slider-value')!;
-  input.addEventListener('input', () => {
-    const v = parseFloat(input.value);
-    display.textContent = `${v}${unit}`;
-    onChange(v);
+
+  const applyValue = (raw: number) => {
+    // Percentages cap at 0–100; everything else only clamps at the minimum.
+    const clamped = isPercent
+      ? Math.max(0, Math.min(100, raw))
+      : Math.max(min, raw);
+    display.textContent = `${clamped}${unit}`;
+    // Keep slider thumb in sync (visually clamped to its own [min, max]).
+    rangeInput.value = String(Math.min(clamped, max));
+    onChange(clamped);
+  };
+
+  rangeInput.addEventListener('input', () => applyValue(parseFloat(rangeInput.value)));
+
+  // ── Double-click to type a value manually ───────────────────────────────
+  display.addEventListener('dblclick', () => {
+    const currentNum = parseFloat(display.textContent ?? '0') || 0;
+
+    const numInput = document.createElement('input');
+    numInput.type = 'number';
+    numInput.className = 'slider-value-input';
+    numInput.value = String(currentNum);
+    numInput.step = String(step);
+    numInput.min = String(min);
+    if (isPercent) numInput.max = '100';
+    display.replaceWith(numInput);
+    numInput.focus();
+    numInput.select();
+
+    const commit = () => {
+      const parsed = parseFloat(numInput.value);
+      const safe = isNaN(parsed) ? currentNum : parsed;
+      // Rebuild the display span and put it back.
+      display.textContent = `${isPercent ? Math.max(0, Math.min(100, safe)) : Math.max(min, safe)}${unit}`;
+      numInput.replaceWith(display);
+      applyValue(safe);
+    };
+
+    numInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); commit(); }
+      if (e.key === 'Escape') { numInput.replaceWith(display); }
+    });
+    numInput.addEventListener('blur', commit);
   });
+
   return row;
 }
 
