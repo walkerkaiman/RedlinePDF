@@ -12,8 +12,6 @@ Download the latest installer from the [**Releases page**](../../releases):
 - **Windows:** Run `RedlinePDF_*_x64-setup.exe` and follow the installer wizard.
 - **macOS:** Open `RedlinePDF_*_universal.dmg` and drag RedlinePDF to Applications.
 
-The installer registers `.redline` project files with the application — double-clicking a `.redline` file in Explorer / Finder will open it directly in RedlinePDF.
-
 ---
 
 ## Features
@@ -21,14 +19,14 @@ The installer registers `.redline` project files with the application — double
 ### Drawing Tools
 | Tool | Key | Description |
 |------|-----|-------------|
-| Select | V | Click to select; drag an empty area to rubber-band select multiple elements |
+| Select | V | Click to select; Shift+click to add/remove from selection; drag empty area for rubber-band multi-select |
 | Pan | H | Click-drag to navigate the page |
 | Freehand Pen | P | Smooth freehand annotation |
 | Line | L | Straight line between two points |
 | Arrow | A | Arrow pointing to a detail |
-| Ellipse / Circle | E | Click center, drag to set radius |
-| Box | B | Filled box with border and fill color, width, and opacity |
-| Text | T | Drag to size a text box; edit font, size, color, background |
+| Ellipse / Circle | E | Click center, drag to set radius; supports fill color and opacity |
+| Box | B | Filled box with border color, fill color, width, and opacity |
+| Text | T | Click to place an auto-sizing text box; double-click to edit |
 | Count | C | Place symbol stamps and auto-populate a legend with totals |
 
 ### Measurement Tools
@@ -54,27 +52,35 @@ Place symbols on the drawing to count items (doors, fixtures, outlets, etc.):
 
 ### Properties Panel
 Context-sensitive panel on the right updates based on the selected tool or selected markup:
-- **Stroke / Border:** color, width, opacity (pen, line, arrow, rectangle, ellipse, box, measurements)
-- **Fill:** color and opacity (Box tool)
+- **Stroke / Border:** color, width, opacity
+- **Fill:** color and opacity (Box, Ellipse)
 - **Text:** font family, size, bold, italic, text color, background color and opacity
+- **All numeric sliders:** double-click the value to type a number directly; Enter or click away to apply
 - **Multi-select:** selecting multiple elements shows the union of applicable properties; changes propagate only to elements that support the changed property
 
 ### Multi-Select
-- Click to select a single element
-- Drag on empty canvas for rubber-band selection
-- Transformer handles wrap all selected elements
+- Click to select a single element; Shift+click to add or remove from selection
+- Drag on empty canvas for rubber-band selection; Shift+drag to add to existing selection
+- Arrow keys nudge selected elements 1 pt; Shift+Arrow nudges 10 pt
 - Delete, move, resize, and style-edit all work on the full selection
 
-### Undo / Redo
-Full undo history for all operations:
-- Adding and deleting markups
-- Moving and resizing (drag/transform)
-- Multi-delete
+### Navigation
+- **Left / Right arrow keys** (nothing selected) → previous / next page
+- **Scroll wheel** → zoom in/out centered on cursor
+- **F** → fit the current page to the viewport
 
-### Project Persistence
-- **Autosave** to IndexedDB every 2 seconds
-- **Save Project** → `.redline` file (JSON + embedded PDF) — fully reopenable and editable
-- **Export PDF** → rasterized redlined PDF at selectable resolution (96 / 150 / 300 DPI)
+### Project Files
+`.redline` files are fully self-contained — the original PDF is embedded alongside all markups. Send a single `.redline` file to a colleague and they can open and continue editing the project with no separate PDF needed.
+
+### Undo / Redo
+Full undo history for all operations including adding, deleting, moving, resizing, and nudging markups.
+
+### Recent Files
+Hover over **Open PDF** or **Open Project** to see the 10 most recently opened files. Click any entry to reload it instantly — no file picker needed.
+
+### Export
+- **Save Project** (Ctrl+S) → `.redline` file; subsequent saves overwrite silently (desktop). Use **Save As** to save to a new location.
+- **Export PDF** (Ctrl+E) → rasterized redlined PDF at selectable resolution (96 / 150 / 300 DPI) with optional page range (all pages, current page, or a custom range like `1, 3-5`)
 
 ---
 
@@ -82,7 +88,7 @@ Full undo history for all operations:
 
 | Action | Shortcut |
 |--------|----------|
-| Open PDF | Ctrl+O |
+| Open Project | Ctrl+O |
 | Save Project | Ctrl+S |
 | Export PDF | Ctrl+E |
 | Undo | Ctrl+Z |
@@ -90,7 +96,11 @@ Full undo history for all operations:
 | Delete selected | Delete / Backspace |
 | Zoom In | + |
 | Zoom Out | - |
-| Fit Width | F |
+| Fit Page | F |
+| Next Page | → (nothing selected) |
+| Previous Page | ← (nothing selected) |
+| Nudge | Arrow keys (element selected) |
+| Nudge large | Shift+Arrow |
 | Select tool | V |
 | Pan tool | H |
 | Pen | P |
@@ -130,7 +140,7 @@ Per-page markup snapshots (`JSON.stringify`) pushed onto an undo stack before ea
 - **pdfjs-dist 4.x** — PDF rendering
 - **Konva.js** — vector markup canvas with Transformer for selection/resize
 - **pdf-lib** — PDF export (composite render: PDF background + Konva overlay)
-- **idb** — IndexedDB autosave
+- **idb** — IndexedDB autosave and recent-file cache
 - **Tauri 2.x** — native desktop packaging with native file dialogs
 
 ---
@@ -149,17 +159,20 @@ src/
     scale.ts             Scale calibration math
   pdf/renderer.ts        pdfjs-dist integration
   canvas/stage.ts        Konva stage manager + shape factory
-  tools/                 One file per tool (select, pen, line, arrow, rect,
-                         ellipse, box, text, count, measureLinear, measureRect,
-                         measurePoly, scaleSet, pan)
+  tools/                 One file per tool (select, pen, line, arrow,
+                         ellipse, box, text, count, measureLinear,
+                         measureRect, measurePoly, scaleSet, pan)
   ui/
     toolbar.ts           Toolbar init + state sync
     properties.ts        Context-sensitive right panel (single + multi-select)
     colorPicker.ts       Color swatch + native input
-    modal.ts             Promise-based dialog + export quality picker
+    modal.ts             Promise-based dialog + export quality/page picker
+    working.ts           Full-screen loading overlay
   export/exportPdf.ts    Composite PDF export (pdfjs + Konva overlay)
-  storage/projectStore.ts IndexedDB autosave + .redline file I/O
-  tauri/integration.ts   Native file dialogs (Tauri only)
+  storage/
+    projectStore.ts      IndexedDB autosave, recent-file cache, .redline I/O
+    recentFiles.ts       Recent files list (localStorage)
+  tauri/integration.ts   Native file dialogs and path-based file I/O (Tauri only)
 src-tauri/               Tauri Rust shell + icon assets for desktop packaging
 public/
   favicon.svg            App icon source (blue background, white document icon)
