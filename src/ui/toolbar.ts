@@ -30,7 +30,7 @@ export function initToolbar(): void {
     appState.setZoom(appState.state.zoom / 1.25);
   });
   document.getElementById('btn-fit-width')?.addEventListener('click', () => {
-    appState.emit('cmd-fit-width');
+    appState.emit('cmd-fit-page');
   });
 
   // Page navigation

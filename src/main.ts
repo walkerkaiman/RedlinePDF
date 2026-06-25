@@ -1,6 +1,6 @@
 import './style.css';
 import { appState } from './state/appState.ts';
-import { loadPdf, fitWidthScale } from './pdf/renderer.ts';
+import { loadPdf, fitPageScale } from './pdf/renderer.ts';
 import { createStage } from './canvas/stage.ts';
 import { initToolbar, showCanvas, updateCursorStatus } from './ui/toolbar.ts';
 import { initPropertiesPanel } from './ui/properties.ts';
@@ -479,9 +479,9 @@ async function renderPage(pageIndex: number): Promise<void> {
   const { widthPts, heightPts } = await pdfRenderer.getPageSizePts(pageIndex);
 
   let zoom = appState.state.zoom;
-  // First load: fit to width
+  // First load: fit page to viewport
   if (!stageManager) {
-    zoom = fitWidthScale(widthPts, containerW);
+    zoom = fitPageScale(widthPts, heightPts, containerW, containerH);
     appState.update({ zoom });
   }
 
@@ -1002,7 +1002,7 @@ function setupKeyboardShortcuts(): void {
       // Zoom
       if (e.key === '+' || e.key === '=') appState.setZoom(appState.state.zoom * 1.25);
       if (e.key === '-') appState.setZoom(appState.state.zoom / 1.25);
-      if (e.key === 'f' || e.key === 'F') appState.emit('cmd-fit-width');
+      if (e.key === 'f' || e.key === 'F') appState.emit('cmd-fit-page');
     }
   });
 }
@@ -1162,11 +1162,11 @@ function setupStateListeners(): void {
       (activeTool as TextTool).editExisting(markup as import('./model/document.ts').TextMarkup);
     }
   });
-  appState.on('cmd-fit-width', async () => {
+  appState.on('cmd-fit-page', async () => {
     if (!pdfRenderer || !stageManager) return;
     const container = document.getElementById('canvas-scroll-container')!;
-    const { widthPts } = await pdfRenderer.getPageSizePts(appState.state.activePageIndex);
-    const newZoom = fitWidthScale(widthPts, container.clientWidth);
+    const { widthPts, heightPts } = await pdfRenderer.getPageSizePts(appState.state.activePageIndex);
+    const newZoom = fitPageScale(widthPts, heightPts, container.clientWidth, container.clientHeight);
     appState.setZoom(newZoom);
   });
 
