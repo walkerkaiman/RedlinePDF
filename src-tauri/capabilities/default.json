@@ -12,6 +12,8 @@
     "fs:allow-read-file",
     "fs:allow-write-file",
     "fs:allow-exists",
-    "fs:default"
+    "fs:default",
+    "fs:allow-desktop-read-recursive",
+    "fs:allow-desktop-write-recursive"
   ]
 }

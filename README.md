@@ -78,9 +78,17 @@ Full undo history for all operations including adding, deleting, moving, resizin
 ### Recent Files
 Hover over **Open PDF** or **Open Project** to see the 10 most recently opened files. Click any entry to reload it instantly — no file picker needed.
 
+### Snapshot
+Capture the current view as a PNG and save it directly to the Desktop:
+- If zoomed in, only the visible portion of the PDF is captured — no gray canvas backdrop
+- If zoomed out, the image is cropped to the document bounds (gray margins excluded)
+- Filenames are derived from the PDF name with an auto-incrementing number (`drawing_1.png`, `drawing_2.png`, …) so files never overwrite each other
+- In browser/dev mode, the PNG is downloaded instead
+
 ### Export
 - **Save Project** (Ctrl+S) → `.redline` file; subsequent saves overwrite silently (desktop). Use **Save As** to save to a new location.
 - **Export PDF** (Ctrl+E) → rasterized redlined PDF at selectable resolution (96 / 150 / 300 DPI) with optional page range (all pages, current page, or a custom range like `1, 3-5`)
+- **Snapshot** (Ctrl+Shift+S) → PNG of the current viewport saved to the Desktop
 
 ---
 
@@ -90,6 +98,7 @@ Hover over **Open PDF** or **Open Project** to see the 10 most recently opened f
 |--------|----------|
 | Open Project | Ctrl+O |
 | Save Project | Ctrl+S |
+| Snapshot to Desktop | Ctrl+Shift+S |
 | Export PDF | Ctrl+E |
 | Undo | Ctrl+Z |
 | Redo | Ctrl+Y / Ctrl+Shift+Z |

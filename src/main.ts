@@ -7,7 +7,7 @@ import { initPropertiesPanel } from './ui/properties.ts';
 import { showModal, showExportOptionsDialog } from './ui/modal.ts';
 import { showWorking, hideWorking, updateWorking } from './ui/working.ts';
 import { autosaveProject, loadAutosave, importProjectFile, saveWithFilePicker, openSaveFilePicker, writeFileHandle, triggerDownload, cacheRecentFile, getCachedRecentFile, removeCachedRecentFile } from './storage/projectStore.ts';
-import { isTauri, openPdfFileNative, saveFileNative, openProjectFileNative, openRecentPdfNative, openRecentProjectNative } from './tauri/integration.ts';
+import { isTauri, openPdfFileNative, saveFileNative, openProjectFileNative, openRecentPdfNative, openRecentProjectNative, saveSnapshotToDesktop } from './tauri/integration.ts';
 import { getRecentPdfs, getRecentProjects, addRecentPdf, addRecentProject, removeRecentPdf, removeRecentProject } from './storage/recentFiles.ts';
 import { exportRedlinedPdf } from './export/exportPdf.ts';
 import { computeScale } from './measure/scale.ts';
@@ -730,6 +730,31 @@ async function handleSaveProjectAs(): Promise<void> {
   await handleSaveProject();
 }
 
+async function handleSnapshot(): Promise<void> {
+  if (!pdfBytes || !stageManager) return;
+  showWorking('Saving snapshot…');
+  try {
+    const dataUrl = stageManager.captureViewportPng();
+    // Strip the data URL prefix and decode to bytes
+    const base64 = dataUrl.replace(/^data:image\/png;base64,/, '');
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    const base = (project.pdfFileName || 'snapshot').replace(/\.pdf$/i, '');
+    if (isTauri()) {
+      const saved = await saveSnapshotToDesktop(base, bytes);
+      if (saved) {
+        const fileName = saved.split(/[\\/]/).pop() ?? saved;
+        showToast(`Snapshot saved: ${fileName}`, 'info', 4000);
+      }
+    } else {
+      triggerDownload(new Blob([bytes], { type: 'image/png' }), `${base}_snapshot.png`);
+    }
+  } finally {
+    hideWorking();
+  }
+}
+
 // ── Drag and drop ─────────────────────────────────────────────────────────────
 
 /** Shared handler for a dropped file path or File object */
@@ -825,6 +850,7 @@ function setupFileInputs(): void {
 
   document.getElementById('btn-save-project')?.addEventListener('click', () => void handleSaveProject());
   document.getElementById('btn-save-project-as')?.addEventListener('click', () => void handleSaveProjectAs());
+  document.getElementById('btn-snapshot')?.addEventListener('click', () => void handleSnapshot());
 
   document.getElementById('btn-export-pdf')?.addEventListener('click', async () => {
     if (!pdfBytes) return;
@@ -944,6 +970,7 @@ function setupKeyboardShortcuts(): void {
     if (ctrl && e.key === 'z') { e.preventDefault(); undo(); return; }
     if (ctrl && (e.key === 'y' || (e.shiftKey && e.key === 'Z'))) { e.preventDefault(); redo(); return; }
     if (ctrl && e.key === 'o') { e.preventDefault(); void handleOpenProject(); return; }
+    if (ctrl && e.shiftKey && (e.key === 's' || e.key === 'S')) { e.preventDefault(); void handleSnapshot(); return; }
     if (ctrl && e.key === 's') { e.preventDefault(); void handleSaveProject(); return; }
     if (ctrl && e.key === 'e') { e.preventDefault(); document.getElementById('btn-export-pdf')?.click(); return; }
 

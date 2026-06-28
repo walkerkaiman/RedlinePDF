@@ -39,6 +39,12 @@ export interface KonvaStageManager {
   getLayerPointer(): Point | null;
   /** Redraw all layers */
   draw(): void;
+  /**
+   * Capture the visible area of the PDF page (viewport ∩ page bounds) as a
+   * PNG data URL. Transformer handles and selection overlays are hidden during
+   * capture so they don't appear in the output.
+   */
+  captureViewportPng(pixelRatio?: number): string;
 }
 
 /** Map a CSS hex color + opacity to a Konva-compatible color string */
@@ -649,6 +655,37 @@ export function createStage(containerId: string, width: number, height: number, 
 
     draw(): void {
       stage.draw();
+    },
+
+    captureViewportPng(pixelRatio?: number): string {
+      // Hide transformer / selection overlay so it doesn't appear in the PNG.
+      interactionLayer.visible(false);
+      stage.batchDraw();
+      try {
+        const z  = stage.scaleX();
+        const px = stage.x();
+        const py = stage.y();
+        const pw = _pageWidthPts  * z;
+        const ph = _pageHeightPts * z;
+
+        // Crop to the intersection of the stage viewport and the PDF page bounds.
+        const cropX = Math.max(0, px);
+        const cropY = Math.max(0, py);
+        const cropW = Math.min(stage.width(),  px + pw) - cropX;
+        const cropH = Math.min(stage.height(), py + ph) - cropY;
+
+        return stage.toDataURL({
+          x: cropX,
+          y: cropY,
+          width:  Math.max(1, cropW),
+          height: Math.max(1, cropH),
+          pixelRatio: pixelRatio ?? window.devicePixelRatio ?? 1,
+          mimeType: 'image/png',
+        });
+      } finally {
+        interactionLayer.visible(true);
+        stage.batchDraw();
+      }
     },
   };
 }

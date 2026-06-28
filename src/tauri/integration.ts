@@ -10,7 +10,8 @@
  */
 
 import { open, save } from '@tauri-apps/plugin-dialog';
-import { readFile, writeFile, readTextFile } from '@tauri-apps/plugin-fs';
+import { readFile, writeFile, readTextFile, exists } from '@tauri-apps/plugin-fs';
+import { desktopDir, join } from '@tauri-apps/api/path';
 
 /** Returns true when running inside a Tauri desktop window */
 export function isTauri(): boolean {
@@ -95,6 +96,30 @@ export async function saveFileNative(
     return path;
   } catch (err) {
     console.error('Tauri file save failed:', err);
+    return null;
+  }
+}
+
+/**
+ * Save PNG bytes to the user's Desktop with an auto-incrementing filename so
+ * files never collide. Returns the full saved path, or null if not in Tauri.
+ *
+ * Example: baseName "drawing" → Desktop/drawing_1.png, drawing_2.png, …
+ */
+export async function saveSnapshotToDesktop(baseName: string, bytes: Uint8Array): Promise<string | null> {
+  if (!isTauri()) return null;
+  try {
+    const desktop = await desktopDir();
+    let n = 1;
+    let fullPath: string;
+    do {
+      fullPath = await join(desktop, `${baseName}_${n}.png`);
+      n++;
+    } while (await exists(fullPath));
+    await writeFile(fullPath, bytes);
+    return fullPath;
+  } catch (err) {
+    console.error('Tauri snapshot save failed:', err);
     return null;
   }
 }
