@@ -6,7 +6,7 @@ import { initToolbar, showCanvas, updateCursorStatus } from './ui/toolbar.ts';
 import { initPropertiesPanel } from './ui/properties.ts';
 import { showModal, showExportOptionsDialog } from './ui/modal.ts';
 import { showWorking, hideWorking, updateWorking } from './ui/working.ts';
-import { autosaveProject, loadAutosave, importProjectFile, saveWithFilePicker, openSaveFilePicker, writeFileHandle, triggerDownload, cacheRecentFile, getCachedRecentFile, removeCachedRecentFile } from './storage/projectStore.ts';
+import { autosaveProject, clearAutosave, importProjectFile, saveWithFilePicker, openSaveFilePicker, writeFileHandle, triggerDownload, cacheRecentFile, getCachedRecentFile, removeCachedRecentFile } from './storage/projectStore.ts';
 import { isTauri, openPdfFileNative, saveFileNative, openProjectFileNative, openRecentPdfNative, openRecentProjectNative, saveSnapshotToDesktop } from './tauri/integration.ts';
 import { getRecentPdfs, getRecentProjects, addRecentPdf, addRecentProject, removeRecentPdf, removeRecentProject } from './storage/recentFiles.ts';
 import { exportRedlinedPdf } from './export/exportPdf.ts';
@@ -1392,16 +1392,11 @@ async function init(): Promise<void> {
   // Select tool is default
   appState.setTool('select');
 
-  // Try to recover last autosaved session
-  try {
-    const saved = await loadAutosave();
-    if (saved && saved.project.pdfFileName) {
-      await loadPdfFromProject(saved.project, saved.pdfBytes);
-      showToast(`Previous session restored: "${saved.project.pdfFileName}"`, 'info', 5000);
-    }
-  } catch {
-    // No autosave available or corrupt — start fresh (expected on first run)
-  }
+  // Clear autosave on clean exit so the next launch starts fresh.
+  // If the app crashes the autosave is preserved and could be used for recovery.
+  window.addEventListener('beforeunload', () => {
+    clearAutosave().catch(() => { /* best-effort */ });
+  });
 }
 
 init().catch(console.error);
