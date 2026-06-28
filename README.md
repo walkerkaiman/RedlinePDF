@@ -1,7 +1,7 @@
 # RedlinePDF
 
 A lightweight desktop PDF redlining tool built for construction plans.
-Import a PDF drawing, mark it up, measure it, and export a redlined PDF.
+Import a PDF plan, mark it up, measure it, and export a redlined version.
 
 ---
 
