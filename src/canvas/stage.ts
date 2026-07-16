@@ -334,17 +334,37 @@ export function createMarkupNode(markup: Markup, pageHeightPts: number): Konva.N
       const m = markup as PolygonAreaMarkup;
       if (m.points.length >= 3) {
         const group = new Konva.Group({ name: 'markup', id: markup.id });
-        const konvaPoints: number[] = [];
+
+        // Convert all points to konva space and compute bounding box.
+        const kvPoints: number[] = [];
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
         for (const p of m.points) {
           const kp = pdfToKonva(p.x, p.y, pageHeightPts);
-          konvaPoints.push(kp.x, kp.y);
+          kvPoints.push(kp.x, kp.y);
+          if (kp.x < minX) minX = kp.x;
+          if (kp.x > maxX) maxX = kp.x;
+          if (kp.y < minY) minY = kp.y;
+          if (kp.y > maxY) maxY = kp.y;
         }
+
+        // Invisible bounding-box rect so Konva's Transformer can compute resize
+        // handles (width/height).  Same approach that makes Box/Ellipse scalable.
+        group.add(new Konva.Rect({
+          name: 'transform-hitbox',
+          x: minX, y: minY,
+          width: maxX - minX,
+          height: maxY - minY,
+          fill: 'transparent',
+          stroke: 'transparent',
+        }));
+
         group.add(new Konva.Line({
+          name: 'polygon-shape',
           closed: true,
           stroke: hexWithOpacity(strokeColor, style.strokeOpacity ?? 1),
           strokeWidth,
           fill: hexWithOpacity(fillColor, fillOpacity),
-          points: konvaPoints,
+          points: kvPoints,
           hitStrokeWidth: Math.max(10, strokeWidth),
         }));
         node = group;
@@ -643,34 +663,43 @@ export function createStage(containerId: string, width: number, height: number, 
         }
         case 'polygon-area': {
           const m = markup as PolygonAreaMarkup;
-          if (node instanceof Konva.Group) {
-            // Bake scale + translation into each point (like box/ellipse pattern).
-            const raw = (node.children[0] as Konva.Line).points();
+          if (node instanceof Konva.Group && node.children.length >= 2) {
+            // Children: [0] transform-hitbox rect, [1] polygon-shape line.
+            const hitbox = node.children[0] as Konva.Rect;
+            const polyLine = node.children[1] as Konva.Line;
+
+            // Apply group transform to each point.
+            const raw = polyLine.points();
+            const baked: number[] = [];
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
             for (let i = 0; i < raw.length; i += 2) {
-              raw[i] = tx + raw[i] * sx;
-              raw[i + 1] = ty + raw[i + 1] * sy;
+              const bx = tx + raw[i] * sx;
+              const by = ty + raw[i + 1] * sy;
+              baked.push(bx, by);
+              if (bx < minX) minX = bx;
+              if (bx > maxX) maxX = bx;
+              if (by < minY) minY = by;
+              if (by > maxY) maxY = by;
             }
-            const pdfCoords = konvaPointsToPdf(Array.from(raw), h);
-            m.points = Array.from({ length: pdfCoords.length / 2 }, (_, i) => ({
+
+            // Update hitbox rect dimensions so Konva's Transformer keeps
+            // handle positions correct even after negative-scale flips.
+            const bw = Math.abs(maxX - minX);
+            const bh = Math.abs(maxY - minY);
+            hitbox.x(minX);
+            hitbox.y(minY);
+            hitbox.width(bw);
+            hitbox.height(bh);
+
+            // Convert baked points back to PDF coords and update model.
+            const pdfCoords = konvaPointsToPdf(Array.from(baked), h);
+            m.points = Array.from({ length: baked.length / 2 }, (_, i) => ({
               x: pdfCoords[i * 2],
-              y: pdfCoords[i * 2 + 1]
+              y: pdfCoords[i * 2 + 1],
             }));
-            (node.children[0] as Konva.Line).points(raw);
+
+            polyLine.points(baked);
             node.x(0); node.y(0); node.scaleX(1); node.scaleY(1);
-          } else {
-            // Fallback: single-line polygon (no group)
-            const line = node as Konva.Line;
-            const raw = line.points();
-            for (let i = 0; i < raw.length; i += 2) {
-              raw[i] = tx + raw[i] * sx;
-              raw[i + 1] = ty + raw[i + 1] * sy;
-            }
-            const pdfCoords = konvaPointsToPdf(Array.from(raw), h);
-            m.points = Array.from({ length: pdfCoords.length / 2 }, (_, i) => ({
-              x: pdfCoords[i * 2],
-              y: pdfCoords[i * 2 + 1]
-            }));
-            line.x(0); line.y(0); line.scaleX(1); line.scaleY(1);
           }
           break;
         }
