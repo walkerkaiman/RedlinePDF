@@ -157,8 +157,8 @@ function renderPanel(panel: HTMLElement, state: typeof appState.state): void {
 
   const typesSet = new Set(effectiveTypes);
 
-  const strokeTypes: MarkupType[] = ['pen', 'line', 'arrow', 'ellipse', 'box', 'measure-linear', 'measure-rect', 'measure-poly'];
-  const fillTypes: MarkupType[] = ['box', 'ellipse'];
+  const strokeTypes: MarkupType[] = ['pen', 'line', 'arrow', 'ellipse', 'box', 'measure-linear', 'measure-rect', 'measure-poly', 'polygon-area'];
+  const fillTypes: MarkupType[] = ['box', 'ellipse', 'polygon-area'];
   const textTypes: MarkupType[] = ['text'];
   const measureSelectedTypes: MarkupType[] = ['measure-linear', 'measure-rect', 'measure-poly'];
 
@@ -404,6 +404,7 @@ function markupTypeLabel(type: MarkupType): string {
     'measure-linear': 'Linear Measurement',
     'measure-rect': 'Rectangle Measurement',
     'measure-poly': 'Polygon Measurement',
+    'polygon-area': 'Polygon Area',
     'count': 'Count Stamp',
     'count-legend': 'Count Legend',
   };

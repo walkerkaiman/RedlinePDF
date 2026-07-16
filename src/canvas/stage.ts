@@ -1,5 +1,5 @@
 import Konva from 'konva';
-import type { Markup, PenMarkup, LineMarkup, ArrowMarkup, EllipseMarkup, BoxMarkup, TextMarkup, MeasureLinearMarkup, MeasureRectMarkup, MeasurePolyMarkup, CountMarkup, CountLegendMarkup, CountSymbol, Point } from '../model/document.ts';
+import type { Markup, PenMarkup, LineMarkup, ArrowMarkup, EllipseMarkup, BoxMarkup, TextMarkup, MeasureLinearMarkup, MeasureRectMarkup, MeasurePolyMarkup, PolygonAreaMarkup, CountMarkup, CountLegendMarkup, CountSymbol, Point } from '../model/document.ts';
 import { pdfToKonva, pdfPointsToKonva, pdfRectToKonva, konvaPointsToPdf, konvaRectToPdf, konvaToPdf } from '../geometry/transform.ts';
 
 export interface KonvaStageManager {
@@ -330,6 +330,30 @@ export function createMarkupNode(markup: Markup, pageHeightPts: number): Konva.N
       break;
     }
 
+    case 'polygon-area': {
+      const m = markup as PolygonAreaMarkup;
+      if (m.points.length >= 3) {
+        const group = new Konva.Group({ name: 'markup', id: markup.id });
+        const konvaPoints: number[] = [];
+        for (const p of m.points) {
+          const kp = pdfToKonva(p.x, p.y, pageHeightPts);
+          konvaPoints.push(kp.x, kp.y);
+        }
+        group.add(new Konva.Line({
+          closed: true,
+          stroke: hexWithOpacity(strokeColor, style.strokeOpacity ?? 1),
+          strokeWidth,
+          fill: hexWithOpacity(fillColor, fillOpacity),
+          points: konvaPoints,
+          hitStrokeWidth: Math.max(10, strokeWidth),
+        }));
+        node = group;
+      } else {
+        node = new Konva.Group({ name: 'markup', id: markup.id });
+      }
+      break;
+    }
+
     case 'count': {
       const m = markup as CountMarkup;
       const pos = pdfToKonva(m.x, m.y, pageHeightPts);
@@ -615,6 +639,39 @@ export function createStage(containerId: string, width: number, height: number, 
             node.x(0); node.y(0);
           }
           node.scaleX(1); node.scaleY(1);
+          break;
+        }
+        case 'polygon-area': {
+          const m = markup as PolygonAreaMarkup;
+          if (node instanceof Konva.Group) {
+            // Bake scale + translation into each point (like box/ellipse pattern).
+            const raw = (node.children[0] as Konva.Line).points();
+            for (let i = 0; i < raw.length; i += 2) {
+              raw[i] = tx + raw[i] * sx;
+              raw[i + 1] = ty + raw[i + 1] * sy;
+            }
+            const pdfCoords = konvaPointsToPdf(Array.from(raw), h);
+            m.points = Array.from({ length: pdfCoords.length / 2 }, (_, i) => ({
+              x: pdfCoords[i * 2],
+              y: pdfCoords[i * 2 + 1]
+            }));
+            (node.children[0] as Konva.Line).points(raw);
+            node.x(0); node.y(0); node.scaleX(1); node.scaleY(1);
+          } else {
+            // Fallback: single-line polygon (no group)
+            const line = node as Konva.Line;
+            const raw = line.points();
+            for (let i = 0; i < raw.length; i += 2) {
+              raw[i] = tx + raw[i] * sx;
+              raw[i + 1] = ty + raw[i + 1] * sy;
+            }
+            const pdfCoords = konvaPointsToPdf(Array.from(raw), h);
+            m.points = Array.from({ length: pdfCoords.length / 2 }, (_, i) => ({
+              x: pdfCoords[i * 2],
+              y: pdfCoords[i * 2 + 1]
+            }));
+            line.x(0); line.y(0); line.scaleX(1); line.scaleY(1);
+          }
           break;
         }
         case 'count': {

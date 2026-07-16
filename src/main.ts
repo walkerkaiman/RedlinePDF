@@ -29,6 +29,7 @@ import { ScaleSetTool } from './tools/scaleSetTool.ts';
 import { MeasureLinearTool } from './tools/measureLinearTool.ts';
 import { MeasureRectTool } from './tools/measureRectTool.ts';
 import { MeasurePolyTool } from './tools/measurePolyTool.ts';
+import { PolygonAreaTool } from './tools/polygonAreaTool.ts';
 import { CountTool } from './tools/countTool.ts';
 import type { BaseTool } from './tools/baseTool.ts';
 import type { ToolContext } from './tools/baseTool.ts';
@@ -290,8 +291,8 @@ function styleKeyAppliesTo(key: string, type: import('./model/document.ts').Mark
   const strokeKeys = ['strokeColor', 'strokeWidth', 'strokeOpacity'];
   const fillKeys = ['fillColor', 'fillOpacity'];
   const textKeys = ['textColor', 'bgColor', 'bgOpacity', 'fontFamily', 'fontSize', 'bold', 'italic'];
-  const strokeTypes: import('./model/document.ts').MarkupType[] = ['pen', 'line', 'arrow', 'ellipse', 'box', 'measure-linear', 'measure-rect', 'measure-poly'];
-  const fillTypes: import('./model/document.ts').MarkupType[] = ['box', 'ellipse'];
+  const strokeTypes: import('./model/document.ts').MarkupType[] = ['pen', 'line', 'arrow', 'ellipse', 'box', 'measure-linear', 'measure-rect', 'measure-poly', 'polygon-area'];
+  const fillTypes: import('./model/document.ts').MarkupType[] = ['box', 'ellipse', 'polygon-area'];
   const textTypes: import('./model/document.ts').MarkupType[] = ['text'];
 
   if (strokeKeys.includes(key)) return strokeTypes.includes(type);
@@ -694,6 +695,7 @@ function createTool(type: ToolType): BaseTool | null {
     case 'measure-linear': return new MeasureLinearTool(ctx);
     case 'measure-rect':   return new MeasureRectTool(ctx);
     case 'measure-poly':   return new MeasurePolyTool(ctx);
+    case 'polygon-area':   return new PolygonAreaTool(ctx);
     case 'count':          return new CountTool(ctx);
     default: return null;
   }
@@ -1094,7 +1096,7 @@ function setupKeyboardShortcuts(): void {
     if (!ctrl) {
       const toolKeys: Record<string, ToolType> = {
         'v': 'select', 'h': 'pan', 'p': 'pen', 'l': 'line', 'a': 'arrow',
-        'e': 'ellipse', 'b': 'box', 't': 'text',
+        'e': 'ellipse', 'b': 'box', 't': 'text', 'y': 'polygon-area',
         's': 'scale-set', 'm': 'measure-linear', 'c': 'count',
       };
       if (e.shiftKey) {

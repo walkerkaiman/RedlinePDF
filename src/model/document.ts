@@ -9,6 +9,7 @@ export interface Point {
 export type MarkupType =
   | 'pen' | 'line' | 'arrow' | 'ellipse' | 'box' | 'text'
   | 'measure-linear' | 'measure-rect' | 'measure-poly'
+  | 'polygon-area'
   | 'count' | 'count-legend';
 
 export type CountSymbol = 'circle' | 'square' | 'triangle' | 'diamond' | 'cross';
@@ -113,6 +114,11 @@ export interface MeasurePolyMarkup extends BaseMarkup {
   label: string;
 }
 
+export interface PolygonAreaMarkup extends BaseMarkup {
+  type: 'polygon-area';
+  points: Point[];
+}
+
 export interface CountMarkup extends BaseMarkup {
   type: 'count';
   x: number; y: number;
@@ -132,7 +138,7 @@ export interface CountLegendMarkup extends BaseMarkup {
 
 export type Markup =
   | PenMarkup | LineMarkup | ArrowMarkup | EllipseMarkup
-  | BoxMarkup | TextMarkup | MeasureLinearMarkup | MeasureRectMarkup | MeasurePolyMarkup
+  | BoxMarkup | TextMarkup | MeasureLinearMarkup | MeasureRectMarkup | MeasurePolyMarkup | PolygonAreaMarkup
   | CountMarkup | CountLegendMarkup;
 
 export interface PageScale {

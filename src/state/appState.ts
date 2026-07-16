@@ -4,7 +4,7 @@ import { DEFAULT_FILL_STYLE, DEFAULT_STROKE_STYLE, DEFAULT_TEXT_STYLE, DEFAULT_U
 export type ToolType =
   | 'select' | 'pan'
   | 'pen' | 'line' | 'arrow' | 'ellipse' | 'box' | 'text'
-  | 'scale-set' | 'measure-linear' | 'measure-rect' | 'measure-poly'
+  | 'scale-set' | 'measure-linear' | 'measure-rect' | 'measure-poly' | 'polygon-area'
   | 'count';
 
 export interface CountSummaryItem {
