@@ -22,6 +22,9 @@ export function initToolbar(): void {
   // Delete selected
   document.getElementById('btn-delete')?.addEventListener('click', () => appState.emit('cmd-delete'));
 
+  // Copy selected (dispatches to main.ts)
+  document.getElementById('btn-copy')?.addEventListener('click', () => appState.emit('cmd-copy'));
+
   // Zoom controls
   document.getElementById('btn-zoom-in')?.addEventListener('click', () => {
     appState.setZoom(appState.state.zoom * 1.25);
@@ -77,6 +80,10 @@ export function initToolbar(): void {
     // Delete
     const delBtn = document.getElementById('btn-delete') as HTMLButtonElement;
     if (delBtn) delBtn.disabled = !state.selectedMarkupId;
+
+    // Copy button: enable when markup is selected, disable otherwise
+    const copyBtn = document.getElementById('btn-copy') as HTMLButtonElement;
+    if (copyBtn) copyBtn.disabled = !state.selectedMarkupId;
 
     // Page indicator
     const indicator = document.getElementById('page-indicator');

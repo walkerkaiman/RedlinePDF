@@ -57,6 +57,14 @@ let pendingMeasureTool: ToolType | null = null;
 
 const MEASURE_TOOLS: ToolType[] = ['measure-linear', 'measure-rect', 'measure-poly'];
 
+// ── Copy/Paste buffer ──────────────────────────────────────────────────────────
+
+/** Deep copy of selected markups, with IDs offset from originals to avoid collisions */
+let copiedMarkups: Markup[] | null = null;
+
+/** Offset used when generating new IDs for pasted/copied markups */
+const ID_OFFSET_BASE = 100000;
+
 // ── Toast notifications ───────────────────────────────────────────────────────
 
 function showToast(message: string, type: 'info' | 'warn' = 'info', duration = 4500): void {
@@ -205,6 +213,72 @@ function removeSelectedMarkups(): void {
     refreshLegend(page);
     pushCountSummary();
   }
+}
+
+/** Copy selected markups to internal buffer */
+function copySelectedMarkups(): void {
+  const ids = appState.state.selectedMarkupIds;
+  if (ids.length === 0) return;
+  const page = currentPage();
+  if (!page) return;
+  
+  // Deep clone selected markups and offset their IDs to avoid collisions
+  copiedMarkups = ids.map(id => {
+    const markup = page.markups.find(m => m.id === id);
+    if (!markup) return null;
+    // Deep clone the markup object
+    const clone = JSON.parse(JSON.stringify(markup)) as Markup;
+    // Offset the ID to ensure uniqueness
+    const baseId = parseInt(clone.id.replace(/\D/g, ''), 36) || 0;
+    clone.id = `m_${(baseId + ID_OFFSET_BASE).toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+    return clone;
+  }).filter((m): m is Markup => m !== null);
+  
+  showToast(`Copied ${copiedMarkups.length} element${copiedMarkups.length > 1 ? 's' : ''}`, 'info');
+}
+
+/** Paste copied markups from internal buffer */
+function pasteCopiedMarkups(): void {
+  if (!copiedMarkups || copiedMarkups.length === 0) return;
+  
+  const page = currentPage();
+  if (!page) return;
+  
+  snapshotMarkups();
+  
+  // Deep clone the copied markups again (in case they were already pasted once)
+  const newMarkups = JSON.parse(JSON.stringify(copiedMarkups)) as Markup[];
+  
+  // Offset IDs again to ensure uniqueness after paste
+  newMarkups.forEach(markup => {
+    const baseId = parseInt(markup.id.replace(/\D/g, ''), 36) || 0;
+    markup.id = `m_${(baseId + ID_OFFSET_BASE).toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+    // Also ensure the markup is on the current page
+    if (markup.pageIndex !== page.index) {
+      markup.pageIndex = page.index;
+    }
+    page.markups.push(markup);
+    stageManager?.addMarkupNode(markup);
+  });
+  
+  // Select all pasted markups
+  const pastedIds = newMarkups.map(m => m.id);
+  if (pastedIds.length > 0) {
+    appState.setMultiSelection(pastedIds);
+    if (activeTool instanceof SelectTool) {
+      (activeTool as SelectTool).refreshTransformerForNodes(pastedIds);
+    }
+  }
+  
+  showToast(`Pasted ${newMarkups.length} element${newMarkups.length > 1 ? 's' : ''}`, 'info');
+  scheduleAutosave();
+}
+
+/** Duplicate selected markups (copy + paste) */
+function duplicateSelectedMarkups(): void {
+  if (appState.state.selectedMarkupIds.length === 0) return;
+  copySelectedMarkups();
+  pasteCopiedMarkups();
 }
 
 /**
@@ -973,6 +1047,9 @@ function setupKeyboardShortcuts(): void {
     if (ctrl && e.shiftKey && (e.key === 's' || e.key === 'S')) { e.preventDefault(); void handleSnapshot(); return; }
     if (ctrl && e.key === 's') { e.preventDefault(); void handleSaveProject(); return; }
     if (ctrl && e.key === 'e') { e.preventDefault(); document.getElementById('btn-export-pdf')?.click(); return; }
+    if (ctrl && e.key === 'c' && appState.state.selectedMarkupIds.length > 0) { e.preventDefault(); copySelectedMarkups(); return; }
+    if (ctrl && e.key === 'v' && copiedMarkups && copiedMarkups.length > 0) { e.preventDefault(); pasteCopiedMarkups(); return; }
+    if (ctrl && e.key === 'd' && appState.state.selectedMarkupIds.length > 0) { e.preventDefault(); duplicateSelectedMarkups(); return; }
 
     if (e.key === 'Delete' || e.key === 'Backspace') {
       removeSelectedMarkups();
