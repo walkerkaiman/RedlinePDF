@@ -1,5 +1,5 @@
 import Konva from 'konva';
-import type { Markup, PenMarkup, LineMarkup, ArrowMarkup, EllipseMarkup, BoxMarkup, TextMarkup, MeasureLinearMarkup, MeasureRectMarkup, MeasurePolyMarkup, PolygonAreaMarkup, CountMarkup, CountLegendMarkup, CountSymbol, Point } from '../model/document.ts';
+import type { Markup, PenMarkup, LineMarkup, ArrowMarkup, EllipseMarkup, BoxMarkup, TextMarkup, MeasureLinearMarkup, MeasureRectMarkup, MeasurePolyMarkup, PolygonAreaMarkup, CountMarkup, CountLegendMarkup, ImageMarkup, CountSymbol, Point } from '../model/document.ts';
 import { pdfToKonva, pdfPointsToKonva, pdfRectToKonva, konvaPointsToPdf, konvaRectToPdf, konvaToPdf } from '../geometry/transform.ts';
 
 export interface KonvaStageManager {
@@ -12,6 +12,8 @@ export interface KonvaStageManager {
 
   /** Set the PDF background image. widthPts/heightPts are the Konva-space size. */
   setPdfImage(canvas: HTMLCanvasElement, widthPts: number, heightPts: number): void;
+  /** Set an image file as the static background (drawn on the bgLayer). Used when no PDF is loaded. */
+  setBackgroundImage(img: HTMLImageElement, widthPts: number, heightPts: number): void;
   /** Update only the canvas (keep Konva.Image size) for hi-res re-render after zoom */
   updatePdfCanvas(canvas: HTMLCanvasElement): void;
   /** Resize stage viewport (on container resize) */
@@ -45,6 +47,11 @@ export interface KonvaStageManager {
    * capture so they don't appear in the output.
    */
   captureViewportPng(pixelRatio?: number): string;
+  /**
+   * Capture the entire canvas at full background-image dimensions, including all
+   * drawn markups. Used when no PDF is loaded to export an image-only session.
+   */
+  captureFullPng(pixelRatio?: number): string;
 }
 
 /** Map a CSS hex color + opacity to a Konva-compatible color string */
@@ -384,6 +391,75 @@ export function createMarkupNode(markup: Markup, pageHeightPts: number): Konva.N
       break;
     }
 
+    case 'image': {
+      const m = markup as ImageMarkup;
+      // Convert PDF-space rect (bottom-left) to Konva-space rect (top-left) — same
+      // approach used by Box / Ellipse so the group children sit at (0,0) with size
+      // width x height and the group position is the top-left corner.
+      const r = pdfRectToKonva(m.x, m.y, m.width, m.height, pageHeightPts);
+
+      const sw = m.style?.strokeWidth ?? 0;
+      const sc = m.style?.strokeColor ?? '#e63946';
+      const so = m.style?.strokeOpacity ?? 1;
+
+      // Build a group wrapping the Konva.Image with an invisible hitbox rect
+      // so Konva.Transformer can compute resize handles.
+      const group = new Konva.Group({
+        name: 'markup',
+        id: markup.id,
+        x: r.x,
+        y: r.y,
+        opacity: m.opacity ?? 1,
+      });
+
+      // Invisible hitbox rect — Konva.Transformer reads .width()/.height()
+      // from this rect to position resize handles.
+      group.add(new Konva.Rect({
+        name: 'transform-hitbox',
+        x: 0, y: 0,
+        width: m.width,
+        height: m.height,
+        fill: 'transparent',
+        stroke: 'transparent',
+      }));
+
+      // Visible stroke overlay — rendered as a slightly smaller rect so it
+      // sits inside the image boundary without being clipped by anti-aliasing.
+      if (sw > 0) {
+        group.add(new Konva.Rect({
+          name: 'image-stroke',
+          x: -sw / 2, y: -sw / 2,
+          width: m.width + sw,
+          height: m.height + sw,
+          fill: 'transparent',
+          stroke: hexWithOpacity(sc, so),
+          strokeWidth: sw,
+        }));
+      }
+
+      const konvaImg = new Konva.Image({ image: undefined });
+      konvaImg.width(m.width);
+      konvaImg.height(m.height);
+      konvaImg.listening(false);
+
+      // Once the browser image loads, assign it to the Konva node and redraw.
+      const img = new window.Image();
+      img.onload = () => {
+        konvaImg.image(img);
+        group.getLayer()?.batchDraw();
+      };
+      // Handle cached images (onload may have already fired)
+      if (img.complete && img.naturalWidth > 0) {
+        konvaImg.image(img);
+        group.getLayer()?.batchDraw();
+      }
+      img.src = m.dataUrl;
+
+      group.add(konvaImg);
+      node = group;
+      break;
+    }
+
     case 'count-legend': {
       const m = markup as CountLegendMarkup;
       const pos = pdfToKonva(m.x, m.y, pageHeightPts);
@@ -497,6 +573,14 @@ export function createStage(containerId: string, width: number, height: number, 
       // Konva.Image is always at (0,0) with size = (widthPts, heightPts) in Konva space.
       // The canvas can be any resolution; Konva stretches it to fill, giving hi-res rendering.
       bgImage = new Konva.Image({ image: canvas, x: 0, y: 0, width: widthPts, height: heightPts });
+      bgLayer.destroyChildren();
+      bgLayer.add(bgImage);
+      bgLayer.draw();
+    },
+
+    setBackgroundImage(img: HTMLImageElement, widthPts: number, heightPts: number): void {
+      if (bgImage) bgImage.destroy();
+      bgImage = new Konva.Image({ image: img, x: 0, y: 0, width: widthPts, height: heightPts });
       bgLayer.destroyChildren();
       bgLayer.add(bgImage);
       bgLayer.draw();
@@ -724,6 +808,40 @@ export function createStage(containerId: string, width: number, height: number, 
           node.scaleX(m.legendScale); node.scaleY(m.legendScale);
           break;
         }
+
+        case 'image': {
+          const m = markup as ImageMarkup;
+          if (node instanceof Konva.Group && node.children.length >= 2) {
+            // Children: [0] transform-hitbox rect, [1] Konva.Image.
+            const hitbox = node.children[0] as Konva.Rect;
+            const konvaImg = node.children[1] as Konva.Image;
+
+            // Apply group transform to size (position is already baked into tx/ty).
+            const newW = m.width * sx;
+            const newH = m.height * sy;
+
+            // tx/ty are absolute top-left in Konva space. ImageMarkup.x/y stores
+            // bottom-left in PDF space — convert accordingly.
+            m.x = tx;
+            m.y = h - ty - newH;
+            m.width = newW;
+            m.height = newH;
+            m.opacity = (m.opacity ?? 1) * sx; // accumulate scale into opacity for "shrink" effect
+
+            hitbox.width(newW);
+            hitbox.height(newH);
+            konvaImg.width(newW);
+            konvaImg.height(newH);
+
+            // Keep the node at its current visual position (tx, ty) with identity
+            // scale — do NOT reset to (0, 0). createMarkupNode places the group at
+            // pdfRectToKonva(m.x, m.y, ...) which equals (tx, ty), so leaving it here
+            // avoids a snap-to-origin that would occur if we zeroed position without
+            // also re-creating children in local coords.
+            node.scaleX(1); node.scaleY(1);
+          }
+          break;
+        }
         default:
           node.x(0); node.y(0); node.scaleX(1); node.scaleY(1);
           break;
@@ -771,6 +889,52 @@ export function createStage(containerId: string, width: number, height: number, 
       } finally {
         interactionLayer.visible(true);
         stage.batchDraw();
+      }
+    },
+
+    captureFullPng(pixelRatio?: number): string {
+      // Capture the full canvas at background image dimensions.
+      // Temporarily expand the stage to cover the entire bgImage so toDataURL
+      // captures the full resolution, not just the small viewport.
+      interactionLayer.visible(false);
+      if (bgImage) {
+        const imgW = bgImage.width() ?? stage.width();
+        const imgH = bgImage.height() ?? stage.height();
+        // Save original stage state
+        const origW = stage.width();
+        const origH = stage.height();
+        const origPos = { x: stage.x(), y: stage.y() };
+        try {
+          stage.width(imgW);
+          stage.height(imgH);
+          stage.position({ x: 0, y: 0 });
+          stage.scale({ x: 1, y: 1 });
+          bgLayer.batchDraw();
+          markupLayer.batchDraw();
+          const pr = pixelRatio ?? window.devicePixelRatio ?? 1;
+          return stage.toDataURL({
+            x: 0,
+            y: 0,
+            width: imgW,
+            height: imgH,
+            pixelRatio: pr,
+            mimeType: 'image/png',
+          });
+        } finally {
+          stage.width(origW);
+          stage.height(origH);
+          stage.position(origPos);
+          interactionLayer.visible(true);
+          stage.batchDraw();
+        }
+      } else {
+        stage.batchDraw();
+        const pr = pixelRatio ?? window.devicePixelRatio ?? 1;
+        return stage.toDataURL({
+          x: 0, y: 0,
+          width: stage.width(), height: stage.height(),
+          pixelRatio: pr, mimeType: 'image/png',
+        });
       }
     },
   };

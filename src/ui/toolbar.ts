@@ -59,7 +59,7 @@ export function initToolbar(): void {
 
     // Enable/disable PDF-dependent buttons
     const hasPdf = state.hasPdf;
-    const pdfBtns = ['btn-save-project', 'btn-save-project-as', 'btn-snapshot', 'btn-export-pdf', 'btn-zoom-in', 'btn-zoom-out', 'btn-fit-width'];
+    const pdfBtns = ['btn-save-project', 'btn-save-project-as', 'btn-export-pdf', 'btn-zoom-in', 'btn-zoom-out', 'btn-fit-width'];
     pdfBtns.forEach(id => {
       const btn = document.getElementById(id) as HTMLButtonElement;
       if (btn) btn.disabled = !hasPdf;
@@ -70,6 +70,13 @@ export function initToolbar(): void {
     const nextBtn = document.getElementById('btn-next-page') as HTMLButtonElement;
     if (prevBtn) prevBtn.disabled = !hasPdf || state.activePageIndex <= 0;
     if (nextBtn) nextBtn.disabled = !hasPdf || state.activePageIndex >= state.totalPages - 1;
+
+    // Snapshot: enable when canvas is visible (PDF or image background), not just PDF
+    const snapshotBtn = document.getElementById('btn-snapshot') as HTMLButtonElement;
+    if (snapshotBtn) {
+      const canvasEl = document.getElementById('canvas-scroll-container');
+      snapshotBtn.disabled = !canvasEl || canvasEl.style.display === 'none';
+    }
 
     // Undo/redo
     const undoBtn = document.getElementById('btn-undo') as HTMLButtonElement;

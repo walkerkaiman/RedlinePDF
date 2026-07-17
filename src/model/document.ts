@@ -10,7 +10,8 @@ export type MarkupType =
   | 'pen' | 'line' | 'arrow' | 'ellipse' | 'box' | 'text'
   | 'measure-linear' | 'measure-rect' | 'measure-poly'
   | 'polygon-area'
-  | 'count' | 'count-legend';
+  | 'count' | 'count-legend'
+  | 'image';
 
 export type CountSymbol = 'circle' | 'square' | 'triangle' | 'diamond' | 'cross';
 
@@ -136,10 +137,26 @@ export interface CountLegendMarkup extends BaseMarkup {
   legendScale?: number;
 }
 
+/**
+ * Image markup — a raster image placed on the canvas.
+ * If placed before any PDF is loaded, it acts as a background layer
+ * (similar to how the PDF itself renders). If placed after a PDF is loaded,
+ * it behaves like other movable/resizable markups.
+ */
+export interface ImageMarkup extends BaseMarkup {
+  type: 'image';
+  x: number; y: number;         // bottom-left origin in Konva space
+  width: number; height: number; // natural image dimensions in pts
+  /** Base64-encoded PNG data URL of the image */
+  dataUrl: string;
+  opacity: number;              // 0-1, global opacity of the image
+  strokeWidth?: number;         // stroke width around image (defaults to style.strokeWidth)
+}
+
 export type Markup =
   | PenMarkup | LineMarkup | ArrowMarkup | EllipseMarkup
   | BoxMarkup | TextMarkup | MeasureLinearMarkup | MeasureRectMarkup | MeasurePolyMarkup | PolygonAreaMarkup
-  | CountMarkup | CountLegendMarkup;
+  | CountMarkup | CountLegendMarkup | ImageMarkup;
 
 export interface PageScale {
   /** PDF points per one base unit (1 inch for imperial, 1 mm for metric) */

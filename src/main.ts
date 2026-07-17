@@ -1,4 +1,5 @@
 import './style.css';
+import Konva from 'konva';
 import { appState } from './state/appState.ts';
 import { loadPdf, fitPageScale } from './pdf/renderer.ts';
 import { createStage } from './canvas/stage.ts';
@@ -34,7 +35,7 @@ import { CountTool } from './tools/countTool.ts';
 import type { BaseTool } from './tools/baseTool.ts';
 import type { ToolContext } from './tools/baseTool.ts';
 import type { ToolType } from './state/appState.ts';
-import type { CountCategory, CountMarkup, CountLegendMarkup } from './model/document.ts';
+import type { CountCategory, CountMarkup, CountLegendMarkup, ImageMarkup } from './model/document.ts';
 import { COUNT_SYMBOLS, COUNT_COLORS, generateId as _generateId } from './model/document.ts';
 
 // ── App state ─────────────────────────────────────────────────────────────────
@@ -499,6 +500,11 @@ async function loadPdfFile(bytes: Uint8Array, fileName: string, filePath: string
   stageManager?.stage.destroy();
   stageManager = null;
 
+  // Restore the background image (if one was set before any PDF) so it can be
+  // replaced by the PDF background after rendering, but also preserved for
+  // re-renders if the user zooms.
+  const savedBgImg = pendingBgImage?.img ?? null;
+
   pdfBytes = bytes;
   pdfRenderer = await loadPdf(bytes);
 
@@ -575,6 +581,34 @@ async function renderPage(pageIndex: number): Promise<void> {
   }
 
   stageManager.setPdfImage(pageInfo.canvas, widthPts, heightPts);
+
+  // Restore the image-as-background that was set before any PDF was loaded.
+  // We overlay it on top of the PDF by re-adding to bgLayer, then move it
+  // to bottom so the PDF canvas renders above it (markups are on markupLayer
+  // which sits on top of bgLayer, so everything is in correct order).
+  if (pendingBgImage) {
+    const natW = pendingBgImage.natW;
+    const natH = pendingBgImage.natH;
+    // Compute dimensions that fit the viewport while preserving aspect ratio
+    const vw = stageManager!.stage.width();
+    const vh = stageManager!.stage.height();
+    const scale = Math.min(vw / natW, vh / natH);
+    const fitW = natW * scale;
+    const fitH = natH * scale;
+    // Center the background image
+    const offsetX = (vw - fitW) / 2;
+    const offsetY = (vh - fitH) / 2;
+
+    const bgImgNode = new Konva.Image({
+      image: pendingBgImage.img,
+      x: offsetX, y: offsetY,
+      width: fitW, height: fitH,
+    });
+    stageManager.bgLayer.add(bgImgNode);
+    bgImgNode.moveToBottom(); // PDF canvas above background, markups on top of bgLayer
+    stageManager.bgLayer.draw();
+  }
+
   stageManager.setZoom(zoom);
   stageManager.clearMarkups();
 
@@ -807,10 +841,14 @@ async function handleSaveProjectAs(): Promise<void> {
 }
 
 async function handleSnapshot(): Promise<void> {
-  if (!pdfBytes || !stageManager) return;
+  if (!stageManager) return;
   showWorking('Saving snapshot…');
   try {
-    const dataUrl = stageManager.captureViewportPng();
+    // When no PDF is loaded, export the full canvas at background-image resolution.
+    // Otherwise capture just the PDF viewport.
+    const dataUrl = pdfBytes
+      ? stageManager.captureViewportPng()
+      : stageManager.captureFullPng();
     // Strip the data URL prefix and decode to bytes
     const base64 = dataUrl.replace(/^data:image\/png;base64,/, '');
     const binary = atob(base64);
@@ -843,11 +881,123 @@ async function handleDroppedFile(file: File): Promise<void> {
     } else if (file.name.endsWith('.redline')) {
       const { project: p, pdfBytes: b } = await importProjectFile(file);
       await loadPdfFromProject(p, b, file.name, null);
+    } else if (isImageFile(file)) {
+      await handleDroppedImage(file);
     }
   } finally {
     hideWorking();
   }
 }
+
+/** Supported image extensions */
+const IMAGE_EXTENSIONS = new Set([
+  '.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg',
+]);
+
+function isImageFile(file: File): boolean {
+  return IMAGE_EXTENSIONS.has('.' + file.name.split('.').pop()!.toLowerCase());
+}
+
+/** Convert a browser File to a base64 PNG data URL */
+function fileToPngDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+/** Place an image on the canvas:
+ * - If no PDF loaded → set it as the background layer (replaces PDF bg)
+ * - If PDF loaded → add as a markup node (moveable/resizable like other markups)
+ */
+async function handleDroppedImage(file: File): Promise<void> {
+  const dataUrl = await fileToPngDataUrl(file);
+
+  // Create an Image element to get natural dimensions and prepare the element
+  const imgEl = new window.Image();
+  imgEl.src = dataUrl;
+  await new Promise<void>((resolve, reject) => {
+    imgEl.onload = () => resolve();
+    imgEl.onerror = reject;
+  });
+
+  // Convert natural pixel dimensions to PDF points (assume 72 DPI as baseline)
+  const natW = imgEl.naturalWidth;
+  const natH = imgEl.naturalHeight;
+  const ptsW = (natW / 72) * 72;
+  const ptsH = (natH / 72) * 72;
+
+  if (!stageManager) {
+    // No stage created yet — user dragged image before opening a PDF.
+    try {
+      // Reuse the already-loaded imgEl from above to set as background.
+      stageManager = createStage('konva-container', 900, 700, natH);
+      stageManager.setBackgroundImage(imgEl, natW, natH);
+      pendingBgImage = { img: imgEl, natW, natH };
+      showCanvas(true);
+      const snapBtn = document.getElementById('btn-snapshot') as HTMLButtonElement;
+      if (snapBtn) snapBtn.disabled = false;
+      setupStageEvents();
+    } catch (err) {
+      console.error('Error setting image as background:', err);
+      showToast('Failed to load image.', 'warn', 4000);
+      return;
+    }
+    showToast('Image set as background — draw on it or load a PDF.', 'info', 5000);
+    return;
+  }
+
+  const page = currentPage();
+  if (!page) return;
+
+  // Get stage viewport dimensions to center the image
+  const containerW = stageManager.stage.width();
+  const containerH = stageManager.stage.height();
+  const zoom = appState.state.zoom;
+  const pageW = stageManager.pageWidthPts * zoom;
+  const pageH = stageManager.pageHeightPts * zoom;
+  const offsetX = (containerW - pageW) / 2 + stageManager.stage.x();
+  const offsetY = (containerH - pageH) / 2 + stageManager.stage.y();
+
+  // Center image on the PDF page in Konva layer space
+  const posX = offsetX + (pageW - ptsW) / 2;
+  const posY = offsetY + (pageH - ptsH) / 2;
+
+  // Convert back to PDF-space bottom-left origin
+  const posPdf = konvaToPdf(posX, posY, stageManager.pageHeightPts);
+
+  const markup: ImageMarkup = {
+    id: generateId(),
+    type: 'image',
+    pageIndex: page.index,
+    style: {},
+    x: posPdf.x - ptsW / 2,
+    y: posPdf.y - ptsH / 2,
+    width: ptsW,
+    height: ptsH,
+    dataUrl,
+    opacity: 1,
+  };
+
+  snapshotMarkups();
+  page.markups.push(markup);
+  stageManager.addMarkupNode(markup);
+
+  // Auto-switch to select and highlight the new image
+  appState.setTool('select');
+  appState.setSelection(markup.id);
+  if (activeTool instanceof SelectTool) {
+    (activeTool as SelectTool).refreshTransformerForNode(markup.id);
+  }
+
+  showToast(`Image added: ${file.name}`, 'info');
+  scheduleAutosave();
+}
+
+/** Temporarily stored image (as HTMLImageElement) when dropped before any PDF is loaded */
+let pendingBgImage: { img: HTMLImageElement; natW: number; natH: number } | null = null;
 
 function setupDragDrop(): void {
   const viewport = document.getElementById('canvas-viewport')!;
@@ -884,6 +1034,10 @@ function setupDragDrop(): void {
             const file = new File([blob], name, { type: 'application/json' });
             const { project: p, pdfBytes: byt } = await importProjectFile(file);
             await loadPdfFromProject(p, byt, name, path);
+          } else if (IMAGE_EXTENSIONS.has(name.split('.').pop()!.toLowerCase())) {
+            const bytes = await readFile(path);
+            const imgFile = new File([bytes], name, { type: 'image/' + name.split('.').pop()!.toLowerCase() });
+            await handleDroppedImage(imgFile);
           }
         } finally {
           hideWorking();
@@ -904,9 +1058,23 @@ function setupFileInputs(): void {
   pdfInput.addEventListener('change', async () => {
     const file = pdfInput.files?.[0];
     if (!file) return;
-    const bytes = new Uint8Array(await file.arrayBuffer());
-    await loadPdfFile(bytes, file.name);
-    pdfInput.value = '';
+    try {
+      if (isImageFile(file)) {
+        showWorking('Loading image…');
+        await handleDroppedImage(file);
+      } else if (file.name.endsWith('.pdf')) {
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        await loadPdfFile(bytes, file.name);
+      } else {
+        showToast(`Unsupported file type: ${file.name}`, 'warn', 4000);
+      }
+    } catch (err) {
+      console.error('Error loading file:', err);
+      showToast('Failed to load file.', 'warn', 4000);
+    } finally {
+      hideWorking();
+      pdfInput.value = '';
+    }
   });
 
   const projectInput = document.getElementById('file-input-project') as HTMLInputElement;

@@ -167,6 +167,10 @@ function renderPanel(panel: HTMLElement, state: typeof appState.state): void {
   const showText   = textTypes.some(t => typesSet.has(t));
   const showMeasureInfo = measureSelectedTypes.some(t => typesSet.has(t)) && isSelect && hasSelection;
 
+  // ── Image section ───────────────────────────────────────────────────────────
+  const imageTypes: MarkupType[] = ['image'];
+  const showImageSection = imageTypes.some(t => typesSet.has(t)) && isSelect && hasSelection;
+
   // Label for the stroke/border section:
   // call it "Border" when the selection contains only rect/box types (and no pen/line etc.)
   const borderOnlyTypes = new Set<MarkupType>(['box']);
@@ -288,6 +292,87 @@ function renderPanel(panel: HTMLElement, state: typeof appState.state): void {
     panel.appendChild(infoSection);
     updateMeasureStatus();
   }
+
+  // ── Image section (when image is selected) ────────────────────────────────
+
+  if (showImageSection) {
+    const page = appState.state.pages[appState.state.activePageIndex];
+    const imgMarkup = page?.markups.find(m => m.type === 'image' && selectedMarkupIds.includes(m.id)) as import('../model/document.ts').ImageMarkup | undefined;
+
+    const opacityVal = imgMarkup?.opacity ?? 1;
+    const sw = imgMarkup?.style?.strokeWidth ?? 0;
+    const sc = imgMarkup?.style?.strokeColor ?? '#e63946';
+    const so = imgMarkup?.style?.strokeOpacity ?? 1;
+
+    const imgSection = document.createElement('div');
+    imgSection.className = 'prop-section';
+    imgSection.innerHTML = `<h4 class="prop-title">Image</h4>`;
+
+    // Opacity slider
+    imgSection.appendChild(createSliderRow(
+      'Opacity',
+      Math.round(opacityVal * 100),
+      0, 100, 5,
+      (v) => {
+        const p = page; if (!p) return;
+        const im = p.markups.find(m => m.type === 'image' && selectedMarkupIds.includes(m.id)) as import('../model/document.ts').ImageMarkup | undefined;
+        if (!im) return;
+        im.opacity = v / 100;
+        appState.update({ activeStyle: { ...im.style, opacity: v / 100 } });
+        rebuildMarkupLayer();
+        scheduleAutosave();
+      }, '%'
+    ));
+
+    // Stroke color
+    imgSection.appendChild(createColorPicker({
+      label: 'Stroke Color',
+      initialColor: sc,
+      onChange: (c) => {
+        const p = page; if (!p) return;
+        const im = p.markups.find(m => m.type === 'image' && selectedMarkupIds.includes(m.id)) as import('../model/document.ts').ImageMarkup | undefined;
+        if (!im) return;
+        im.style.strokeColor = c;
+        appState.update({ activeStyle: { ...im.style, strokeColor: c } });
+        rebuildMarkupLayer();
+        scheduleAutosave();
+      },
+    }));
+
+    // Stroke width
+    imgSection.appendChild(createSliderRow(
+      'Stroke Width',
+      sw,
+      0, 12, 1,
+      (v) => {
+        const p = page; if (!p) return;
+        const im = p.markups.find(m => m.type === 'image' && selectedMarkupIds.includes(m.id)) as import('../model/document.ts').ImageMarkup | undefined;
+        if (!im) return;
+        im.style.strokeWidth = v;
+        appState.update({ activeStyle: { ...im.style, strokeWidth: v } });
+        rebuildMarkupLayer();
+        scheduleAutosave();
+      }
+    ));
+
+    // Stroke opacity
+    imgSection.appendChild(createSliderRow(
+      'Stroke Opacity',
+      Math.round(so * 100),
+      0, 100, 5,
+      (v) => {
+        const p = page; if (!p) return;
+        const im = p.markups.find(m => m.type === 'image' && selectedMarkupIds.includes(m.id)) as import('../model/document.ts').ImageMarkup | undefined;
+        if (!im) return;
+        im.style.strokeOpacity = v / 100;
+        appState.update({ activeStyle: { ...im.style, strokeOpacity: v / 100 } });
+        rebuildMarkupLayer();
+        scheduleAutosave();
+      }, '%'
+    ));
+
+    panel.appendChild(imgSection);
+  }
 }
 
 function renderCountPanel(panel: HTMLElement, state: typeof appState.state): void {
@@ -407,6 +492,7 @@ function markupTypeLabel(type: MarkupType): string {
     'polygon-area': 'Polygon Area',
     'count': 'Count Stamp',
     'count-legend': 'Count Legend',
+    'image': 'Image',
   };
   return labels[type] ?? type;
 }
