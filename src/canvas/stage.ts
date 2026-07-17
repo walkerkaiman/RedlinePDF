@@ -826,7 +826,6 @@ export function createStage(containerId: string, width: number, height: number, 
             m.y = h - ty - newH;
             m.width = newW;
             m.height = newH;
-            m.opacity = (m.opacity ?? 1) * sx; // accumulate scale into opacity for "shrink" effect
 
             hitbox.width(newW);
             hitbox.height(newH);

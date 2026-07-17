@@ -1358,15 +1358,31 @@ function setupStateListeners(): void {
   // When a markup (or markups) is selected, resolve types and pre-fill activeStyle.
   appState.on('selection-change', (raw) => {
     const ids = raw as string[];
-    if (!ids || ids.length === 0) return; // deselect already cleared state
+    if (!ids || ids.length === 0) {
+      // Deselect → clear image props too
+      appState.update({ selectedImageProps: null });
+      return;
+    }
     const page = currentPage();
     if (!page) return;
-    const markups = ids.map(id => page.markups.find(m => m.id === id)).filter(Boolean) as import('./model/document.ts').Markup[];
+    const markups = ids.map(id => page.markups.find(m => m.id === id)).filter(Boolean) as Markup[];
     if (markups.length === 0) return;
     const types = markups.map(m => m.type);
     appState.setSelectionTypes(types);
     // Pre-fill style from the primary (first) markup so sliders show real values.
     appState.update({ activeStyle: { ...appState.state.activeStyle, ...markups[0].style } });
+    // Populate image props if a single image is selected
+    if (ids.length === 1 && markups[0].type === 'image') {
+      const im = markups[0] as ImageMarkup;
+      appState.update({ selectedImageProps: {
+        opacity: im.opacity ?? 1,
+        strokeColor: im.style.strokeColor ?? '#e63946',
+        strokeWidth: im.style.strokeWidth ?? 0,
+        strokeOpacity: im.style.strokeOpacity ?? 1,
+      }});
+    } else {
+      appState.update({ selectedImageProps: null });
+    }
   });
 
   // When a style property changes while something is selected, apply it to
@@ -1395,11 +1411,39 @@ function setupStateListeners(): void {
     scheduleAutosave();
   });
 
+  // Image property changes — applied directly to the selected image markup.
+  appState.on('image-prop-change', (raw) => {
+    const { prop, value } = raw as { prop: string; value: unknown };
+    const ids = appState.state.selectedMarkupIds;
+    if (ids.length !== 1) return;
+    const page = currentPage();
+    if (!page) return;
+    const markup = page.markups.find(m => m.id === ids[0]);
+    if (!markup || markup.type !== 'image') return;
+    const im = markup as ImageMarkup;
+    if (prop === 'opacity') {
+      im.opacity = value as number;
+    } else if (['strokeColor', 'strokeWidth', 'strokeOpacity'].includes(prop)) {
+      (im.style as Record<string, unknown>)[prop] = value;
+    }
+    stageManager?.updateMarkupNode(markup);
+    // Refresh properties panel with updated values
+    appState.update({ selectedImageProps: {
+      opacity: im.opacity ?? 1,
+      strokeColor: im.style.strokeColor ?? '#e63946',
+      strokeWidth: im.style.strokeWidth ?? 0,
+      strokeOpacity: im.style.strokeOpacity ?? 1,
+    }});
+    scheduleAutosave();
+  });
+
   appState.on('cmd-undo', () => undo());
   appState.on('cmd-redo', () => redo());
   appState.on('cmd-delete', () => {
     removeSelectedMarkups();
   });
+
+  appState.on('cmd-duplicate', () => duplicateSelectedMarkups());
 
   appState.on('cmd-count-add-category', () => addCountCategory());
   appState.on('cmd-count-rename', (data) => {

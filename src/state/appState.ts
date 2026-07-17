@@ -36,6 +36,8 @@ export interface AppStateData {
   activeCountCategoryId: string | null;
   countSummary: CountSummaryItem[];
   countSymbolSize: number;
+  /** Props of the currently selected image markup (populated by main.ts) */
+  selectedImageProps: { opacity: number; strokeColor: string; strokeWidth: number; strokeOpacity: number } | null;
 }
 
 type StateListener = (state: Readonly<AppStateData>) => void;
@@ -63,6 +65,7 @@ class AppStateManager {
     activeCountCategoryId: null,
     countSummary: [],
     countSymbolSize: 10,
+    selectedImageProps: null,
   };
 
   private listeners: StateListener[] = [];

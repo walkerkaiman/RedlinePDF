@@ -95,11 +95,26 @@ async function renderMarkupCanvas(
   const layer = new Konva.Layer();
   stage.add(layer);
 
-  for (const markup of markups) {
-    // createMarkupNode converts PDF coords → Konva coords (Y-flip) internally.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    layer.add(createMarkupNode(markup, heightPts) as any);
-  }
+  // createMarkupNode converts PDF coords → Konva coords (Y-flip) internally.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const markup of markups) { layer.add(createMarkupNode(markup, heightPts) as any); }
+
+  // Wait for every image markup's browser Image to load before drawing —
+  // createMarkupNode loads asynchronously via img.onload so images would be blank.
+  await Promise.all(
+    markups.filter(m => m.type === 'image').map(async (m) => {
+      const im = m as import('../model/document.ts').ImageMarkup;
+      if (!im.dataUrl?.startsWith('data:')) return;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await new Promise<void>((resolve, reject) => {
+        const img = new Image();
+        img.onload  = () => resolve();
+        img.onerror = () => reject(new Error(`Failed to load image markup ${im.id}`));
+        img.src = im.dataUrl;
+      });
+    }),
+  );
+
   layer.draw();
 
   // toCanvas({ pixelRatio }) renders at widthPts*pixelRatio × heightPts*pixelRatio.
