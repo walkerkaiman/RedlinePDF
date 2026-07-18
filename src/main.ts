@@ -59,14 +59,6 @@ let pendingMeasureTool: ToolType | null = null;
 
 const MEASURE_TOOLS: ToolType[] = ['measure-linear', 'measure-rect', 'measure-poly'];
 
-// ── Copy/Paste buffer ──────────────────────────────────────────────────────────
-
-/** Deep copy of selected markups, with IDs offset from originals to avoid collisions */
-let copiedMarkups: Markup[] | null = null;
-
-/** Offset used when generating new IDs for pasted/copied markups */
-const ID_OFFSET_BASE = 100000;
-
 // ── Toast notifications ───────────────────────────────────────────────────────
 
 function showToast(message: string, type: 'info' | 'warn' = 'info', duration = 4500): void {
@@ -217,70 +209,60 @@ function removeSelectedMarkups(): void {
   }
 }
 
-/** Copy selected markups to internal buffer */
-function copySelectedMarkups(): void {
+/** Duplicate selected markups (deep-clone with position offset) */
+function duplicateSelectedMarkups(): void {
   const ids = appState.state.selectedMarkupIds;
   if (ids.length === 0) return;
   const page = currentPage();
   if (!page) return;
-  
-  // Deep clone selected markups and offset their IDs to avoid collisions
-  copiedMarkups = ids.map(id => {
-    const markup = page.markups.find(m => m.id === id);
-    if (!markup) return null;
-    // Deep clone the markup object
-    const clone = JSON.parse(JSON.stringify(markup)) as Markup;
-    // Offset the ID to ensure uniqueness
-    const baseId = parseInt(clone.id.replace(/\D/g, ''), 36) || 0;
-    clone.id = `m_${(baseId + ID_OFFSET_BASE).toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
-    return clone;
-  }).filter((m): m is Markup => m !== null);
-  
-  showToast(`Copied ${copiedMarkups.length} element${copiedMarkups.length > 1 ? 's' : ''}`, 'info');
-}
 
-/** Paste copied markups from internal buffer */
-function pasteCopiedMarkups(): void {
-  if (!copiedMarkups || copiedMarkups.length === 0) return;
-  
-  const page = currentPage();
-  if (!page) return;
-  
   snapshotMarkups();
-  
-  // Deep clone the copied markups again (in case they were already pasted once)
-  const newMarkups = JSON.parse(JSON.stringify(copiedMarkups)) as Markup[];
-  
-  // Offset IDs again to ensure uniqueness after paste
-  newMarkups.forEach(markup => {
-    const baseId = parseInt(markup.id.replace(/\D/g, ''), 36) || 0;
-    markup.id = `m_${(baseId + ID_OFFSET_BASE).toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
-    // Also ensure the markup is on the current page
-    if (markup.pageIndex !== page.index) {
-      markup.pageIndex = page.index;
-    }
-    page.markups.push(markup);
-    stageManager?.addMarkupNode(markup);
-  });
-  
-  // Select all pasted markups
-  const pastedIds = newMarkups.map(m => m.id);
-  if (pastedIds.length > 0) {
-    appState.setMultiSelection(pastedIds);
-    if (activeTool instanceof SelectTool) {
-      (activeTool as SelectTool).refreshTransformerForNodes(pastedIds);
-    }
-  }
-  
-  showToast(`Pasted ${newMarkups.length} element${newMarkups.length > 1 ? 's' : ''}`, 'info');
-  scheduleAutosave();
-}
 
-/** Duplicate selected markups (copy + paste) */
-function duplicateSelectedMarkups(): void {
-  if (appState.state.selectedMarkupIds.length === 0) return;
-  copySelectedMarkups();
-  pasteCopiedMarkups();
+  // Deep clone selected markups with new IDs
+  const clones = ids.map(id => {
+    const m = page.markups.find(m => m.id === id);
+    return JSON.parse(JSON.stringify(m)) as Markup | null;
+  }).filter(Boolean) as Markup[];
+
+  // Offset position, generate fresh IDs, push to model + canvas
+  const newIds: string[] = [];
+  for (const clone of clones) {
+    clone.id = generateId();
+    switch (clone.type) {
+      case 'line': case 'arrow':
+        (clone as any).x1 += 20; (clone as any).y1 -= 20;
+        (clone as any).x2 += 20; (clone as any).y2 -= 20; break;
+      case 'ellipse':
+        (clone as any).cx += 20; (clone as any).cy -= 20; break;
+      case 'box': case 'image': case 'text':
+        clone.x += 20; clone.y -= 20; break;
+      default: {
+        if ('points' in clone && Array.isArray(clone.points)) {
+          (clone.points as Array<{x:number;y:number}>).forEach(p => { p.x += 20; p.y -= 20; });
+        } else if ('cx' in clone) {
+          (clone as any).cx += 20; (clone as any).cy -= 20;
+        } else if ('x1' in clone) {
+          (clone as any).x1 += 20; (clone as any).y1 -= 20;
+          (clone as any).x2 += 20; (clone as any).y2 -= 20;
+        } else if ('x' in clone) {
+          (clone as any).x += 20; (clone as any).y -= 20;
+        }
+      }
+    }
+    page.markups.push(clone);
+    stageManager?.addMarkupNode(clone);
+    newIds.push(clone.id);
+  }
+
+  appState.setSelection(null);
+  if (newIds.length === 1) appState.setSelection(newIds[0]);
+  else appState.setMultiSelection(newIds);
+  if (activeTool instanceof SelectTool) {
+    (activeTool as SelectTool).refreshTransformerForNodes(newIds);
+  }
+
+  showToast(`Duplicated ${clones.length} element${clones.length > 1 ? 's' : ''}`, 'info');
+  scheduleAutosave();
 }
 
 /**
@@ -1217,8 +1199,6 @@ function setupKeyboardShortcuts(): void {
     if (ctrl && e.shiftKey && (e.key === 's' || e.key === 'S')) { e.preventDefault(); void handleSnapshot(); return; }
     if (ctrl && e.key === 's') { e.preventDefault(); void handleSaveProject(); return; }
     if (ctrl && e.key === 'e') { e.preventDefault(); document.getElementById('btn-export-pdf')?.click(); return; }
-    if (ctrl && e.key === 'c' && appState.state.selectedMarkupIds.length > 0) { e.preventDefault(); copySelectedMarkups(); return; }
-    if (ctrl && e.key === 'v' && copiedMarkups && copiedMarkups.length > 0) { e.preventDefault(); pasteCopiedMarkups(); return; }
     if (ctrl && e.key === 'd' && appState.state.selectedMarkupIds.length > 0) { e.preventDefault(); duplicateSelectedMarkups(); return; }
 
     if (e.key === 'Delete' || e.key === 'Backspace') {
@@ -1312,12 +1292,14 @@ function setupStateListeners(): void {
   });
 
   appState.on('zoom-change', async (zoom) => {
-    if (!pdfRenderer || !stageManager) return;
+    if (!stageManager) return;
     const zoomVal = zoom as number;
-    const pageIndex = appState.state.activePageIndex;
-    const pageInfo = await pdfRenderer.loadPage(pageIndex, zoomVal);
-    // Re-render hi-res PDF background and zoom the stage
-    stageManager.updatePdfCanvas(pageInfo.canvas);
+    if (pdfRenderer) {
+      const pageIndex = appState.state.activePageIndex;
+      const pageInfo = await pdfRenderer.loadPage(pageIndex, zoomVal);
+      // Re-render hi-res PDF background and zoom the stage
+      stageManager.updatePdfCanvas(pageInfo.canvas);
+    }
     stageManager.setZoom(zoomVal);
     rebuildMarkupLayer();
     activateCurrentTool();
@@ -1481,9 +1463,16 @@ function setupStateListeners(): void {
     }
   });
   appState.on('cmd-fit-page', async () => {
-    if (!pdfRenderer || !stageManager) return;
+    if (!stageManager) return;
     const container = document.getElementById('canvas-scroll-container')!;
-    const { widthPts, heightPts } = await pdfRenderer.getPageSizePts(appState.state.activePageIndex);
+    let widthPts: number, heightPts: number;
+    if (pdfRenderer) {
+      ({ widthPts, heightPts } = await pdfRenderer.getPageSizePts(appState.state.activePageIndex));
+    } else {
+      // Image-only mode — use the dimensions stored on stageManager.
+      widthPts = stageManager.pageWidthPts;
+      heightPts = stageManager.pageHeightPts;
+    }
     const newZoom = fitPageScale(widthPts, heightPts, container.clientWidth, container.clientHeight);
     appState.setZoom(newZoom);
   });

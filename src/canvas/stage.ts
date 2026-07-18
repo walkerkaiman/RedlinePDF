@@ -579,6 +579,8 @@ export function createStage(containerId: string, width: number, height: number, 
     },
 
     setBackgroundImage(img: HTMLImageElement, widthPts: number, heightPts: number): void {
+      _pageWidthPts = widthPts;
+      _pageHeightPts = heightPts;
       if (bgImage) bgImage.destroy();
       bgImage = new Konva.Image({ image: img, x: 0, y: 0, width: widthPts, height: heightPts });
       bgLayer.destroyChildren();
@@ -635,9 +637,12 @@ export function createStage(containerId: string, width: number, height: number, 
       // Preserve the Konva transform so that if bakeTransform was not called
       // (e.g. for unsupported types), a style-only rebuild doesn't snap the
       // shape back to its un-scaled model coordinates.
-      const saved = existing
+      // NOTE: skip scale restore for 'text' — text boxes size from content,
+      // and restoring old scaleX/scaleY after fontSize change makes the visual
+      // font appear unchanged.
+      const saved = existing && markup.type !== 'text'
         ? { x: existing.x(), y: existing.y(), scaleX: existing.scaleX(), scaleY: existing.scaleY(), rotation: existing.rotation() }
-        : null;
+        : (existing ? { x: existing.x(), y: existing.y() } : null);
       if (existing) existing.destroy();
       const newNode = createMarkupNode(markup, _pageHeightPts);
       if (saved) newNode.setAttrs(saved);

@@ -38,9 +38,31 @@ export class TextTool extends BaseTool {
         if (walk.hasName('markup')) return;
         walk = walk.getParent?.() ?? null;
       }
-      const pos = this.ctx.stageManager.getLayerPointer();
-      if (!pos) return;
-      this.openNewEditor(pos.x, pos.y);
+
+      // Use raw DOM event coordinates directly — avoids cached pointer state
+      // drift under high-zoom / DPR conditions.
+      const evt = e.evt as MouseEvent | TouchEvent | undefined;
+      if (!evt) return;
+      let clientX: number, clientY: number;
+      if ('touches' in evt && evt.touches.length > 0) {
+        clientX = evt.touches[0].clientX;
+        clientY = evt.touches[0].clientY;
+      } else {
+        const me = evt as MouseEvent;
+        clientX = me.clientX;
+        clientY = me.clientY;
+      }
+
+      const stageBox = stage.container().getBoundingClientRect();
+      // Pointer CSS pixel relative to container origin
+      const pointerCssX = clientX - stageBox.left;
+      const pointerCssY = clientY - stageBox.top;
+      // Convert to Konva (logical) coords by dividing out the scale
+      const scale = stage.scaleX();
+      const kx = pointerCssX / scale;
+      const ky = pointerCssY / scale;
+
+      this.openNewEditor(kx, ky);
     });
   }
 
