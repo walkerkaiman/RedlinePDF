@@ -18,13 +18,17 @@ export function setupUndoTracking(): void {
 
   // Register UNDO/REDO handlers as no-ops so future code can dispatch mutations without errors,
   // but they do nothing until pages are stored in AppStateData (Phase 4, Task 20).
-  appState.registerMutationHandler('UNDO', () => {
-    console.warn('[UndoTracking] Undo handler is a no-op until Phase 4 pages array exists in AppStateData');
-  });
+  if (appState && typeof appState.registerMutationHandler === 'function') {
+    appState.registerMutationHandler('UNDO', () => {
+      console.warn('[UndoTracking] Undo handler is a no-op until Phase 4 pages array exists in AppStateData');
+    });
 
-  appState.registerMutationHandler('REDO', () => {
-    console.warn('[UndoTracking] Redo handler is a no-op until Phase 4 pages array exists in AppStateData');
-  });
+    appState.registerMutationHandler('REDO', () => {
+      console.warn('[UndoTracking] Redo handler is a no-op until Phase 4 pages array exists in AppStateData');
+    });
+  } else {
+    console.warn('[UndoTracking] Skipping registration — appState instance not yet initialized (circular import protection)');
+  }
 }
 
 // --- The following structures are preserved intact for Phase 4 implementation. ---
