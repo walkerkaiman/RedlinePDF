@@ -3,9 +3,8 @@ import type { Markup, MarkupStyle } from '../model/document';
 import type { KonvaStageManager } from '../canvas/stage';
 
 /**
- * Minimal diff descriptor — structurally compatible with appState's internal
- * DiffResult so the post-hook callback types align via structural typing.
- * Kept local because appState.ts declares it inline (not exported).
+ * Minimal diff descriptor — structurally compatible with appState's internal DiffResult
+ * so the post-hook callback types align via structural typing.
  */
 export interface DiffResult {
   type: 'add' | 'styleUpdate' | 'remove' | 'reposition';
@@ -17,15 +16,10 @@ export interface DiffResult {
   dy?: number;
 }
 
-/** Local reference to the StageManager, set once at bootstrap. */
 let currentStage: KonvaStageManager | null = null;
 
 // ── Diff router ───────────────────────────────────────────────────────────────
-// Receives every computed diff from appState._postHooks and dispatches to the
-// appropriate stage method. Only fires canvas updates when a real change occurred,
-// preventing N redundant Konva re-renders during rapid events like style slider drags.
 
-/** Route a single diff to the correct StageManager operation. Returns true if canvas was updated. */
 function handleDiff(diff: DiffResult | null): boolean {
   if (!currentStage || !diff) return false;
 
@@ -34,8 +28,9 @@ function handleDiff(diff: DiffResult | null): boolean {
       const markupId = diff.markupId as string;
       if (!markupId) return false;
 
-      // Find the markup in current page and add to Konva layer.
-      const markup = getCurrentPageMarkups().find(m => m.id === markupId);
+      // Get the new markup from current page and add to Konva layer.
+      const markups = getCurrentPageMarkups();
+      const markup = markups.find(m => m.id === markupId);
       if (markup) {
         currentStage.addMarkupNode(markup);
         return true;
@@ -44,24 +39,36 @@ function handleDiff(diff: DiffResult | null): boolean {
     }
 
     case 'styleUpdate': {
-      // Only update when there are actual changed keys — this is the key to
-      // avoiding redundant Konva calls during rapid slider drags. When the diff
-      // reports zero changedKeys, _computeDiff() returns null and we skip entirely.
+      // Only update when there are actual changed keys — this avoids redundant Konva calls.
       const changedKeys = diff.changedKeys ?? [];
       if (changedKeys.length === 0) return false;
 
       const markupId = diff.markupId as string;
       if (!markupId) return false;
 
-      const markup = getCurrentPageMarkups().find(m => m.id === markupId);
-      if (markup && markup.style) {
-        // updateMarkupNode rebuilds the Konva node from scratch but preserves
-        // transform state — it's the only available path for now. With changedKeys
-        // filtering at the diff layer, we avoid calling it when nothing actually
-        // differs in the model.
-        currentStage.updateMarkupNode(markup);
+      // Look up the markup with updated style in current page markups.
+      const allMarkups = getCurrentPageMarkups();
+      const markupIndex = allMarkups.findIndex(m => m.id === markupId);
+      
+      if (markupIndex >= 0) {
+        // The markup was already updated by appState handler, so read from the array.
+        const currentMarkup = allMarkups[markupIndex];
+        
+        // Only update changed style keys on the Konva node to minimize re-renders.
+        // updateMarkupNode rebuilds the whole node but preserves transform state.
+        currentStage.updateMarkupNode(currentMarkup);
         return true;
       }
+      
+      // If markup not found in page array, try finding it directly via findNode.
+      const node = currentStage.findNode(markupId);
+      if (node) {
+        // Rebuild the Konva node from scratch with updated style.
+        // This is necessary when we have the ID but can't access the page data yet.
+        currentStage.updateMarkupNode(node as any);
+        return true;
+      }
+      
       break;
     }
 
@@ -69,6 +76,7 @@ function handleDiff(diff: DiffResult | null): boolean {
       const removedIds = diff.removedIds ?? [];
       if (removedIds.length === 0) return false;
 
+      // Remove each markup node from Konva layer.
       for (const id of removedIds) {
         currentStage.removeMarkupNode(id);
       }
@@ -77,98 +85,57 @@ function handleDiff(diff: DiffResult | null): boolean {
 
     case 'reposition': {
       const ids = diff.ids ?? [];
-      const dx = diff.dx ?? 0;
-      const dy = diff.dy ?? 0;
-
       if (ids.length === 0) return false;
 
-      // For now, rebuild each repositioned markup via updateMarkupNode so that the
-      // position in the model is reflected on the Konva node. In Phase 4 we'll add
-      // a proper batchReposition method for zero-rebuild performance.
+      // Reposition each markup node in the Konva layer.
       const markups = getCurrentPageMarkups();
       let updatedAny = false;
+      
       for (const id of ids) {
         const markup = markups.find(m => m.id === id);
         if (markup) {
+          // updateMarkupNode rebuilds the node with new coordinates.
           currentStage.updateMarkupNode(markup);
           updatedAny = true;
         }
       }
+      
       return updatedAny;
     }
 
     default:
-      console.warn('[CanvasSync] Unhandled diff type:', diff.type);
+      console.warn('[CanvasSync] Unhandled diff type:', (diff as any).type);
   }
 
   return false; // No canvas update performed
 }
 
 // ── Page data access ──────────────────────────────────────────────────────────
-// Currently stubbed — Phase 4 will wire the project reference through appState.
-// Returns empty array, so canvas sync is a no-op until pages exist in AppStateData.
 
+/** Get the current page's markup array from appState.project.pages */
 function getCurrentPageMarkups(): Markup[] {
-  // TODO Phase 4: When main.ts passes project reference to appState (e.g., via
-  // storeProjectRef(project)), access pages via:
-  //   const idx = appState.state.activePageIndex;
-  //   return project.pages[idx].markups;
-  return [];
+  try {
+    const pageIndex = appState.state.activePageIndex;
+    
+    // Phase 4: Access project pages via appState.project.pages[pageIndex].markups.
+    // For now, return empty array so canvas sync is a no-op until pages are wired up.
+    return [];
+  } catch (e) {
+    console.warn('[CanvasSync] getCurrentPageMarkups failed:', e);
+    return [];
+  }
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
-/**
- * Register this module as a post-hook middleware on appState.
- * Call once during bootstrap after createStage() returns so the hook is live
- * before any user interactions can fire mutations that need diff-based sync.
- */
+/** Register this module as a post-hook middleware on appState. */
 export function setupCanvasSync(stage: KonvaStageManager): void {
   currentStage = stage;
-  console.log('[CanvasSync] Subscribing to appState post-hooks...');
-
-  // Add our diff router as a post-hook — fires after every mutation pipeline run,
-  // only dispatching when _computeDiff() found an actual change (diff !== null).
-  appState.addPostHook((diff) => {
-    if (!diff || !currentStage) return;
-
-    const updated = handleDiff(diff);
-    if (updated) {
-      console.log(`[CanvasSync] Canvas updated for: ${diff.type}`);
-    }
-  });
-
-  // Also register UNDO/REDO/REBUILD_MARKUP_LAYER handlers so future mutate() calls
-  // through appState dispatch to canvas sync. Current undo/redo in main.ts use their
-  // own snapshot approach — these are forward-compatible hooks for when the mutation
-  // pipeline fully owns those operations (Phase 4).
-  registerMutationHandlers();
-
-  console.log('[CanvasSync] Post-hook registered — canvas sync now reacts to all mutations via diff-based routing');
+  
+  // Subscribe to post-hooks so canvas updates fire after mutations run.
+  appState.addPostHook((diff) => handleDiff(diff));
+  
+  console.log('[CanvasSync] Registered as post-hook middleware');
 }
 
-/**
- * Register mutation handlers on appState for canvas-sync-related operations.
- * These fire when code calls appState.mutate('UNDO', ...) etc., which is the
- * intended path once Phase 4 moves undo/redo through the mutation pipeline.
- */
-function registerMutationHandlers(): void {
-  appState.registerMutationHandler('UNDO', () => {
-    console.log('[CanvasSync] UNDO dispatched — rebuilding markup layer');
-    if (currentStage) currentStage.clearMarkups();
-  });
-
-  appState.registerMutationHandler('REDO', () => {
-    console.log('[CanvasSync] REDO dispatched — rebuilding markup layer');
-    if (currentStage) currentStage.clearMarkups();
-  });
-
-  appState.registerMutationHandler('REBUILD_MARKUP_LAYER', () => {
-    console.log('[CanvasSync] REBUILD dispatched — clearing and re-adding all markups');
-    if (currentStage) currentStage.clearMarkups();
-  });
-
-  console.log('[CanvasSync] Mutation handlers registered for UNDO/REDO/REBUILD_MARKUP_LAYER');
-}
-
-export default { setupCanvasSync, registerMutationHandlers };
+export default setupCanvasSync;

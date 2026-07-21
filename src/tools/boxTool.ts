@@ -1,86 +1,71 @@
 import Konva from 'konva';
-import { BaseTool, type ToolContext } from './baseTool.ts';
-import { konvaRectToPdf } from '../geometry/transform.ts';
-import { generateId } from '../model/document.ts';
-import type { BoxMarkup } from '../model/document.ts';
-import { hexWithOpacity } from '../canvas/stage.ts';
+import type { ToolProtocol } from './toolProtocol';
+import { toolRunner } from './toolRunner';
+import { generateId, BoxMarkup } from '../model/document.ts';
 
-export class BoxTool extends BaseTool {
-  private isDrawing = false;
-  private startPos = { x: 0, y: 0 };
-  private previewRect: Konva.Rect | null = null;
+let isDrawing = false;
+let startPos: { x: number; y: number } | null = null;
+let previewRect: Konva.Rect | null = null;
 
-  constructor(ctx: ToolContext) {
-    super('box', ctx);
-  }
-
-  activate(): void {
-    const { stage, interactionLayer } = this.ctx.stageManager;
-    stage.container().style.cursor = 'crosshair';
-
-    stage.on('mousedown.box touchstart.box', () => {
-      const pos = this.ctx.stageManager.getLayerPointer();
-      if (!pos) return;
-      this.isDrawing = true;
-      this.startPos = { ...pos };
-      const style = this.ctx.getStyle();
-      this.previewRect = new Konva.Rect({
-        x: pos.x, y: pos.y, width: 0, height: 0,
-        stroke: style.strokeColor ?? '#e63946',
-        strokeWidth: style.strokeWidth ?? 2,
-        fill: hexWithOpacity(style.fillColor ?? '#e63946', style.fillOpacity ?? 0.2),
-      });
-      interactionLayer.add(this.previewRect);
+const boxDrawPhase = {
+  startDraw(e: any) {
+    isDrawing = true;
+    const sm = toolRunner.getStageManager();
+    if (!sm?.interactionLayer) return null;
+    
+    startPos = { x: e.x, y: e.y };
+    
+    previewRect = new Konva.Rect({
+      x: e.x, y: e.y, width: 0, height: 0,
+      stroke: appState.state.activeStyle.strokeColor || '#e63946',
+      strokeWidth: appState.state.activeStyle.strokeWidth || 2,
     });
+    sm.interactionLayer.add(previewRect);
 
-    stage.on('mousemove.box touchmove.box', () => {
-      if (!this.isDrawing || !this.previewRect) return;
-      const pos = this.ctx.stageManager.getLayerPointer();
-      if (!pos) return;
-      const x = Math.min(pos.x, this.startPos.x);
-      const y = Math.min(pos.y, this.startPos.y);
-      const w = Math.abs(pos.x - this.startPos.x);
-      const h = Math.abs(pos.y - this.startPos.y);
-      this.previewRect.setAttrs({ x, y, width: w, height: h });
-      interactionLayer.draw();
-    });
+    return previewRect;
+  },
 
-    stage.on('mouseup.box touchend.box', () => {
-      if (!this.isDrawing || !this.previewRect) return;
-      this.isDrawing = false;
+  midDraw(e: any) {
+    if (!isDrawing || !previewRect || !startPos) return null;
+    
+    const x = Math.min(startPos.x, e.x);
+    const y = Math.min(startPos.y, e.y);
+    const w = Math.abs(e.x - startPos.x);
+    const h = Math.abs(e.y - startPos.y);
+    
+    previewRect.setAttrs({ x, y, width: w, height: h });
 
-      const pos = this.ctx.stageManager.getLayerPointer();
-      if (!pos) { this.previewRect.destroy(); this.previewRect = null; return; }
+    toolRunner.getStageManager()?.interactionLayer.draw();
+  },
 
-      const x = Math.min(pos.x, this.startPos.x);
-      const y = Math.min(pos.y, this.startPos.y);
-      const w = Math.abs(pos.x - this.startPos.x);
-      const h = Math.abs(pos.y - this.startPos.y);
+  endDraw(): BoxMarkup | null {
+    if (!isDrawing || !previewRect) return null;
 
-      this.previewRect.destroy();
-      this.previewRect = null;
+    isDrawing = false;
+    const sm = toolRunner.getStageManager();
+    
+    const h = toolRunner.getPageHeightPts();
+    let x = Math.min(startPos!.x, previewRect.x() + previewRect.width());
+    let y = Math.min(startPos!.y, previewRect.y() + previewRect.height());
 
-      if (w < 4 || h < 4) return;
+    // Ensure minimum size for valid markup (10 pixels)
+    if (previewRect.width() < 10 || previewRect.height() < 10) {
+      previewRect.destroy();
+      return null;
+    }
 
-      const pdfRect = konvaRectToPdf(x, y, w, h, this.ctx.getPageHeightPts());
-      const markup: BoxMarkup = {
-        id: generateId(),
-        type: 'box',
-        pageIndex: this.ctx.getPageIndex(),
-        style: { ...this.ctx.getStyle() },
-        ...pdfRect,
-      };
-      this.ctx.onMarkupAdd(markup);
-    });
-  }
+    const pdfPoints = toolRunner.konvaToPdf([x, y], h);
+    
+    const markup: BoxMarkup = {
+      id: generateId(), type: 'box', pageIndex: toolRunner.getPageIndex(),
+      x: pdfPoints[0], y: pdfPoints[1], width: 50, height: 30, style: appState.state.activeStyle || {},
+    };
 
-  deactivate(): void {
-    const { stage } = this.ctx.stageManager;
-    stage.off('mousedown.box touchstart.box');
-    stage.off('mousemove.box touchmove.box');
-    stage.off('mouseup.box touchend.box');
-    stage.container().style.cursor = 'default';
-    if (this.previewRect) { this.previewRect.destroy(); this.previewRect = null; }
-    this.isDrawing = false;
-  }
-}
+    previewRect.destroy();
+    return markup;
+  },
+};
+
+export const boxTool: ToolProtocol = {
+  id: 'box', name: 'Box / Rectangle', key: 'r', draw: { ...boxDrawPhase, startPos },
+};

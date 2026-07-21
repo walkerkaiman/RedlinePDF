@@ -1,261 +1,147 @@
-import Konva from 'konva';
-import { BaseTool, type ToolContext } from './baseTool.ts';
-import { konvaToPdf } from '../geometry/transform.ts';
-import { generateId } from '../model/document.ts';
-import type { TextMarkup } from '../model/document.ts';
-import { hexWithOpacity } from '../canvas/stage.ts';
-import { appState } from '../state/appState.ts';
+import type { ToolProtocol } from './toolProtocol';
+import { toolRunner } from './toolRunner';
+import { generateId } from '../model/document';
 
-export class TextTool extends BaseTool {
-  private editor: HTMLTextAreaElement | null = null;
-  private mirror: HTMLSpanElement | null = null;
+let editor: HTMLTextAreaElement | null = null;
+let mirrorSpan: HTMLSpanElement | null = null;
 
-  constructor(ctx: ToolContext) {
-    super('text', ctx);
-  }
+function hexToRgb(hex: string): {r: number, g: number, b: number} {
+  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  return result ? {
+    r: parseInt(result[1], 16),
+    g: parseInt(result[2], 16),
+    b: parseInt(result[3], 16)
+  } : {r: 0, g: 0, b: 0};
+}
 
-  activate(): void {
-    const { stage } = this.ctx.stageManager;
-    stage.container().style.cursor = 'text';
+const textDrawPhase = {
+  startDraw() {}, // No shape drawing for text - uses click handler
+  midDraw() {},
+  endDraw() { return null; },
+  
+  onClick(e: { x: number, y: number }) {
+    const stageManager = toolRunner.getStageManager();
+    if (!stageManager?.stage || editor) return;
+    
+    // Create new text box at click position
+    openNewEditor(e.x, e.y);
+  },
 
-    // Double-clicking an existing text markup opens it for editing
-    stage.on('dblclick.text dbltap.text', (e) => {
-      let walk: import('konva').default.Node | null = e.target;
-      while (walk && walk !== stage) {
-        if (walk.hasName('markup')) break;
-        walk = walk.getParent?.() ?? null;
-      }
-      if (!walk || !walk.hasName('markup')) return;
-      appState.emit('cmd-text-edit', { id: walk.id() });
-      e.cancelBubble = true;
-    });
+  activate() {
+    const stageManager = toolRunner.getStageManager();
+    if (stageManager?.stage) {
+      stageManager.stage.container().style.cursor = 'text';
+    }
+  },
 
-    stage.on('mousedown.text touchstart.text', (e) => {
-      if (this.editor) return;
-      // Clicking on an existing markup → don't create a new box
-      let walk: import('konva').default.Node | null = e.target;
-      while (walk && walk !== stage) {
-        if (walk.hasName('markup')) return;
-        walk = walk.getParent?.() ?? null;
-      }
+  deactivate() {
+    destroyEditor();
+    
+    const stageManager = toolRunner.getStageManager();
+    if (stageManager?.stage) {
+      stageManager.stage.container().style.cursor = 'default';
+    }
+  },
+};
 
-      // Use raw DOM event coordinates directly — avoids cached pointer state
-      // drift under high-zoom / DPR conditions.
-      const evt = e.evt as MouseEvent | TouchEvent | undefined;
-      if (!evt) return;
-      let clientX: number, clientY: number;
-      if ('touches' in evt && evt.touches.length > 0) {
-        clientX = evt.touches[0].clientX;
-        clientY = evt.touches[0].clientY;
-      } else {
-        const me = evt as MouseEvent;
-        clientX = me.clientX;
-        clientY = me.clientY;
-      }
+function openNewEditor(kx: number, ky: number): void {
+  const stageManager = toolRunner.getStageManager();
+  if (!stageManager?.stage) return;
+  
+  const style = toolRunner.getActiveStyle();
+  const scale = stageManager.stage.scaleX();
+  const pos = stageManager.stage.position();
+  const box = stageManager.stage.container().getBoundingClientRect();
+  
+  editor = createEditor({
+    screenX: box.left + kx * scale + pos.x,
+    screenY: box.top + ky * scale + pos.y,
+    scale,
+    fontFamily: style?.fontFamily || 'Arial',
+    fontSize: style?.fontSize || 12,
+    bold: style?.bold || false,
+    italic: style?.italic || false,
+    textColor: style?.textColor || '#000000',
+    bgColor: style?.bgColor ? `rgba(${hexToRgb(style.bgColor).r},${hexToRgb(style.bgColor).g},${hexToRgb(style.bgColor).b},0.8)` : 'white',
+    borderColor: style?.strokeColor || '#666',
+  });
 
-      const stageBox = stage.container().getBoundingClientRect();
-      // Pointer CSS pixel relative to container origin
-      const pointerCssX = clientX - stageBox.left;
-      const pointerCssY = clientY - stageBox.top;
-      // Convert to Konva (logical) coords by dividing out the scale
-      const scale = stage.scaleX();
-      const kx = pointerCssX / scale;
-      const ky = pointerCssY / scale;
+  const finish = (e?: Event) => {
+    if (!editor) return;
+    
+    const text = editor.value.trim();
+    const screenW = editor.offsetWidth;
+    const screenH = editor.offsetHeight;
+    
+    destroyEditor();
+    
+    if (!text || !stageManager) return;
 
-      this.openNewEditor(kx, ky);
-    });
-  }
-
-  // ── New text box ────────────────────────────────────────────────────────────
-
-  private openNewEditor(kx: number, ky: number): void {
-    const { stage } = this.ctx.stageManager;
-    const style = this.ctx.getStyle();
-    const scale = stage.scaleX();
-    const stagePos = stage.position();
-    const stageBox = stage.container().getBoundingClientRect();
-    const screenX = stageBox.left + kx * scale + stagePos.x;
-    const screenY = stageBox.top + ky * scale + stagePos.y;
-
-    const ta = this.createTextarea({
-      screenX, screenY, scale,
-      fontFamily: style.fontFamily ?? 'Arial',
-      fontSize: style.fontSize ?? 12,
-      bold: style.bold ?? false,
-      italic: style.italic ?? false,
-      textColor: style.textColor ?? '#e63946',
-      bgColor: hexWithOpacity(style.bgColor ?? '#ffffff', style.bgOpacity ?? 0.8),
-      borderColor: style.strokeColor ?? '#e63946',
-    });
-
-    const finish = (e?: Event) => {
-      if (e) e.preventDefault();
-      const text = ta.value.trim();
-      // Capture dimensions before removal
-      const screenW = ta.offsetWidth;
-      const screenH = ta.offsetHeight;
-      this.destroyEditor();
-      if (!text) return;
-
-      const kw = screenW / scale;
-      const kh = screenH / scale;
-      const pdfPos = konvaToPdf(kx, ky, this.ctx.getPageHeightPts());
-      // Store position only; Konva re-derives size from content on render
-      const markup: TextMarkup = {
+    toolRunner.getAppState().mutate('ADD_MARKUP', {
+      markup: {
         id: generateId(),
         type: 'text',
-        pageIndex: this.ctx.getPageIndex(),
-        style: { ...this.ctx.getStyle() },
-        x: pdfPos.x, y: pdfPos.y,
-        width: kw, height: kh,
+        pageIndex: toolRunner.getPageIndex(),
+        style,
+        x: kx,
+        y: ky,
+        width: screenW / scale,
+        height: screenH / scale,
         text,
-      };
-      this.ctx.onMarkupAdd(markup);
-    };
-
-    ta.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') { this.destroyEditor(); }
-      if (e.key === 'Enter' && e.shiftKey) finish(e);
-    });
-    ta.addEventListener('blur', finish);
-  }
-
-  // ── Edit existing text box ─────────────────────────────────────────────────
-
-  editExisting(markup: TextMarkup): void {
-    const { stage } = this.ctx.stageManager;
-    const style = markup.style;
-    const scale = stage.scaleX();
-    const stagePos = stage.position();
-    const stageBox = stage.container().getBoundingClientRect();
-    const h = this.ctx.getPageHeightPts();
-
-    // Convert PDF position back to screen coords
-    // (use the Konva node's position if available for accuracy)
-    const node = stage.findOne(`#${markup.id}`);
-    const kx = node ? node.x() : 0;
-    const ky = node ? node.y() : 0;
-    const screenX = stageBox.left + kx * scale + stagePos.x;
-    const screenY = stageBox.top + ky * scale + stagePos.y;
-
-    if (node) node.visible(false);
-
-    const ta = this.createTextarea({
-      screenX, screenY, scale,
-      fontFamily: style.fontFamily ?? 'Arial',
-      fontSize: style.fontSize ?? 12,
-      bold: style.bold ?? false,
-      italic: style.italic ?? false,
-      textColor: style.textColor ?? '#e63946',
-      bgColor: hexWithOpacity(style.bgColor ?? '#ffffff', style.bgOpacity ?? 0.8),
-      borderColor: style.strokeColor ?? '#e63946',
-      initialValue: markup.text,
-    });
-
-    const finish = (e?: Event) => {
-      if (e) e.preventDefault();
-      const text = ta.value.trim();
-      this.destroyEditor();
-      if (node) node.visible(true);
-      if (text !== markup.text) {
-        const pdfPos = konvaToPdf(kx, ky, h);
-        this.ctx.onMarkupUpdate(markup.id, { text, x: pdfPos.x, y: pdfPos.y } as Partial<TextMarkup>);
       }
-    };
-
-    ta.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') { this.destroyEditor(); if (node) node.visible(true); }
-      if (e.key === 'Enter' && e.shiftKey) finish(e);
     });
-    ta.addEventListener('blur', finish);
+  };
 
-    ta.focus();
-    ta.select();
+  editor.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') destroyEditor();
+    if (e.key === 'Enter' && e.shiftKey) finish(e);
+  });
+  
+  editor.addEventListener('blur', finish);
+}
+
+function createEditor(opts: any): HTMLTextAreaElement {
+  // Create mirror span for width calculation
+  const mirror = document.createElement('span');
+  mirror.style.cssText = 'position:fixed;top:-9999px;left:-9999px;visibility:hidden;' +
+    `font:${opts.fontSize * opts.scale}px ${opts.fontFamily};white-space:pre;padding:4px;`;
+  document.body.appendChild(mirror);
+  mirrorSpan = mirror;
+
+  const ta = document.createElement('textarea');
+  ta.value = opts.initialValue || '';
+  ta.placeholder = 'Type here...';
+  ta.style.cssText = `position:fixed;left:${opts.screenX}px;top:${opts.screenY}px;min-width:80px;width:80px;height:auto;font:${opts.fontSize * opts.scale}px ${opts.fontFamily};color:${opts.textColor};background:${opts.bgColor};border:2px dashed ${opts.borderColor};padding:4px;resize:none;outline:none;z-index:9999;`;
+  
+  document.body.appendChild(ta);
+
+  const autoSize = () => {
+    mirror.textContent = ta.value + 'W';
+    ta.style.width = `${Math.max(mirror.offsetWidth, 80)}px`;
+    ta.style.height = 'auto';
+    ta.style.height = `${ta.scrollHeight}px`;
+  };
+  
+  ta.addEventListener('input', autoSize);
+  requestAnimationFrame(() => { autoSize(); ta.focus(); });
+
+  return ta;
+}
+
+function destroyEditor() {
+  if (editor) {
+    editor.remove();
+    editor = null;
   }
-
-  // ── Shared textarea factory ────────────────────────────────────────────────
-
-  private createTextarea(opts: {
-    screenX: number; screenY: number; scale: number;
-    fontFamily: string; fontSize: number; bold: boolean; italic: boolean;
-    textColor: string; bgColor: string; borderColor: string;
-    initialValue?: string;
-  }): HTMLTextAreaElement {
-    const { screenX, screenY, scale, fontFamily, fontSize, bold, italic,
-            textColor, bgColor, borderColor, initialValue } = opts;
-
-    // Mirror span measures the natural text width so we can auto-grow horizontally
-    const mirror = document.createElement('span');
-    const fSize = `${fontSize * scale}px`;
-    const sharedFont = `${italic ? 'italic ' : ''}${bold ? 'bold ' : ''}${fSize} ${fontFamily}`;
-    mirror.style.cssText = `
-      position: fixed; top: -9999px; left: -9999px;
-      visibility: hidden; white-space: pre; pointer-events: none;
-      font: ${sharedFont}; padding: 4px; box-sizing: border-box;
-      border: 1.5px solid transparent;
-    `;
-    document.body.appendChild(mirror);
-    this.mirror = mirror;
-
-    const ta = document.createElement('textarea');
-    ta.value = initialValue ?? '';
-    ta.placeholder = 'Type here  •  Shift+Enter to finish';
-    ta.style.cssText = `
-      position: fixed;
-      left: ${screenX}px;
-      top: ${screenY}px;
-      min-width: 80px;
-      width: 80px;
-      height: auto;
-      min-height: 1.5em;
-      overflow: hidden;
-      font: ${sharedFont};
-      color: ${textColor};
-      background: ${bgColor};
-      border: 1.5px dashed ${borderColor};
-      border-radius: 2px;
-      padding: 4px;
-      resize: none;
-      outline: none;
-      z-index: 9999;
-      box-sizing: border-box;
-      line-height: 1.4;
-      white-space: pre;
-      overflow-wrap: normal;
-    `;
-    document.body.appendChild(ta);
-    this.editor = ta;
-
-    const autoSize = () => {
-      // Width: widest line in the mirror
-      const lines = ta.value.split('\n');
-      mirror.textContent = lines.reduce((a, b) => a.length > b.length ? a : b, '') + 'W';
-      const naturalW = Math.max(mirror.offsetWidth, 80);
-      ta.style.width = `${naturalW}px`;
-      // Height: let scrollHeight determine it
-      ta.style.height = 'auto';
-      ta.style.height = `${ta.scrollHeight}px`;
-    };
-
-    ta.addEventListener('input', autoSize);
-    // Trigger on next frame so DOM is ready
-    requestAnimationFrame(() => { autoSize(); ta.focus(); });
-
-    return ta;
-  }
-
-  private destroyEditor(): void {
-    this.editor?.remove();
-    this.editor = null;
-    this.mirror?.remove();
-    this.mirror = null;
-  }
-
-  deactivate(): void {
-    const { stage } = this.ctx.stageManager;
-    stage.off('dblclick.text dbltap.text');
-    stage.off('mousedown.text touchstart.text');
-    stage.container().style.cursor = 'default';
-    this.destroyEditor();
+  if (mirrorSpan) {
+    mirrorSpan.remove();
+    mirrorSpan = null;
   }
 }
+
+export const textTool: ToolProtocol = {
+  id: 'text',
+  name: 'Text',
+  key: 't',
+  draw: textDrawPhase,
+};

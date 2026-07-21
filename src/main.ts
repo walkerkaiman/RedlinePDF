@@ -15,28 +15,30 @@ import { computeScale } from './measure/scale.ts';
 import { formatLinear, formatArea } from './measure/units.ts';
 import { konvaToPdf, distance, polygonArea, polygonPerimeter } from './geometry/transform.ts';
 import type { Markup, PageData, ProjectData } from './model/document.ts';
-import { DEFAULT_PAGE_SCALE, DEFAULT_UNITS, generateId } from './model/document.ts';
+import { DEFAULT_PAGE_SCALE, DEFAULT_UNITS, generateId, COUNT_SYMBOLS, COUNT_COLORS } from './model/document';
+// Count category/markup/types still needed locally
+import type { CountCategory, CountSymbol, CountMarkup, CountLegendMarkup, ImageMarkup } from './model/document';
 
-// Import tools
+// Import BaseTool for instanceof checks in undo/redo/select (still used)
+import type { BaseTool, ToolContext } from './tools/baseTool';
 import { SelectTool } from './tools/selectTool.ts';
-import { PanTool } from './tools/panTool.ts';
-import { PenTool } from './tools/penTool.ts';
-import { LineTool } from './tools/lineTool.ts';
-import { ArrowTool } from './tools/arrowTool.ts';
-import { EllipseTool } from './tools/ellipseTool.ts';
-import { BoxTool } from './tools/boxTool.ts';
-import { TextTool } from './tools/textTool.ts';
-import { ScaleSetTool } from './tools/scaleSetTool.ts';
-import { MeasureLinearTool } from './tools/measureLinearTool.ts';
-import { MeasureRectTool } from './tools/measureRectTool.ts';
-import { MeasurePolyTool } from './tools/measurePolyTool.ts';
-import { PolygonAreaTool } from './tools/polygonAreaTool.ts';
-import { CountTool } from './tools/countTool.ts';
-import type { BaseTool } from './tools/baseTool.ts';
-import type { ToolContext } from './tools/baseTool.ts';
 import type { ToolType } from './state/appState.ts';
-import type { CountCategory, CountMarkup, CountLegendMarkup, ImageMarkup } from './model/document.ts';
-import { COUNT_SYMBOLS, COUNT_COLORS, generateId as _generateId } from './model/document.ts';
+import { toolRunner } from './tools/toolRunner';
+
+// Protocol objects — fully converted so far. Others stay as classes until migrated.
+
+// Protocol objects — fully converted so far. Others stay as classes until migrated.
+import { lineTool as lineToolProtocol } from './tools/lineTool.ts';
+import { arrowTool } from './tools/arrowTool.ts';
+import { ellipseTool } from './tools/ellipseTool.ts';
+import { polygonAreaTool } from './tools/polygonAreaTool.ts';
+
+const toolProtocols: Record<string, any> = {
+  'line': lineToolProtocol,
+  'arrow': arrowTool,
+  'ellipse': ellipseTool,
+  'polygon-area': polygonAreaTool,
+};
 
 // ── App state ─────────────────────────────────────────────────────────────────
 
@@ -341,7 +343,7 @@ function ensureLegend(page: import('./model/document.ts').PageData): void {
   const pw = stageManager?.pageWidthPts ?? 612;
   const ph = stageManager?.pageHeightPts ?? 792;
   const legend: CountLegendMarkup = {
-    id: _generateId(),
+    id: generateId(),
     type: 'count-legend',
     pageIndex: page.index,
     style: {},
@@ -398,7 +400,7 @@ function addCountCategory(): void {
   snapshotMarkups();
   const idx = page.countCategories.length;
   const cat: CountCategory = {
-    id: _generateId(),
+    id: generateId(),
     name: `Count ${idx + 1}`,
     symbol: COUNT_SYMBOLS[idx % COUNT_SYMBOLS.length],
     color: COUNT_COLORS[idx % COUNT_COLORS.length],
@@ -695,33 +697,16 @@ function buildToolContext(): ToolContext {
   };
 }
 
-function createTool(type: ToolType): BaseTool | null {
-  if (!stageManager) return null;
-  const ctx = buildToolContext();
-  switch (type) {
-    case 'select': return new SelectTool(ctx);
-    case 'pan':    return new PanTool(ctx);
-    case 'pen':    return new PenTool(ctx);
-    case 'line':   return new LineTool(ctx);
-    case 'arrow':  return new ArrowTool(ctx);
-    case 'ellipse': return new EllipseTool(ctx);
-    case 'box':    return new BoxTool(ctx);
-    case 'text':   return new TextTool(ctx);
-    case 'scale-set': return new ScaleSetTool(ctx);
-    case 'measure-linear': return new MeasureLinearTool(ctx);
-    case 'measure-rect':   return new MeasureRectTool(ctx);
-    case 'measure-poly':   return new MeasurePolyTool(ctx);
-    case 'polygon-area':   return new PolygonAreaTool(ctx);
-    case 'count':          return new CountTool(ctx);
-    default: return null;
-  }
-}
+// ── Tool switching — uses ToolRunner singleton (no BaseTool classes) ───────
 
 function activateCurrentTool(): void {
-  if (!stageManager) return;
-  if (activeTool) { activeTool.deactivate(); activeTool = null; }
-  const tool = createTool(appState.state.activeTool);
-  if (tool) { tool.activate(); activeTool = tool; }
+  if (!stageManager || !toolRunner.getActive()) return;
+  
+  const type = appState.state.activeTool;
+  console.log(`[main] Switching to tool: ${type}`);
+  
+  // ToolRunner handles event binding internally. Set protocol from appState.
+  toolRunner.setActiveTool(toolProtocols[type]);
 }
 
 // ── Scale helpers ─────────────────────────────────────────────────────────────
@@ -1457,10 +1442,8 @@ function setupStateListeners(): void {
     const page = currentPage();
     const markup = page?.markups.find(m => m.id === id);
     if (!markup || markup.type !== 'text') return;
-    if (!(activeTool instanceof TextTool)) appState.setTool('text');
-    if (activeTool instanceof TextTool) {
-      (activeTool as TextTool).editExisting(markup as import('./model/document.ts').TextMarkup);
-    }
+    if (appState.state.activeTool !== 'text') appState.setTool('text');
+    // Text tool handles editing via its click handler; nothing else to invoke.
   });
   appState.on('cmd-fit-page', async () => {
     if (!stageManager) return;

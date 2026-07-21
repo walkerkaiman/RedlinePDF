@@ -1,106 +1,87 @@
 import Konva from 'konva';
-import { BaseTool, type ToolContext } from './baseTool.ts';
-import { konvaToPdf } from '../geometry/transform.ts';
+import { toolRunner } from './toolRunner.ts';
+import type { ToolProtocol, DrawPhase } from './toolProtocol.ts';
 import { generateId } from '../model/document.ts';
-import type { EllipseMarkup } from '../model/document.ts';
+import { konvaToPdf } from '../geometry/transform.ts';
 
-export class EllipseTool extends BaseTool {
-  private isDrawing = false;
-  private centerPos = { x: 0, y: 0 };
-  private previewEllipse: Konva.Ellipse | null = null;
-  /** Small cross-hair lines rendered at the center while dragging */
-  private centerMark: Konva.Line | null = null;
+let startPos: { x: number; y: number } | null = null;
 
-  constructor(ctx: ToolContext) {
-    super('ellipse', ctx);
-  }
-
-  activate(): void {
-    const { stage, interactionLayer } = this.ctx.stageManager;
-    stage.container().style.cursor = 'crosshair';
-
-    stage.on('mousedown.ellipse touchstart.ellipse', () => {
-      const pos = this.ctx.stageManager.getLayerPointer();
-      if (!pos) return;
-      this.isDrawing = true;
-      this.centerPos = { ...pos };
-      const style = this.ctx.getStyle();
-
-      this.previewEllipse = new Konva.Ellipse({
-        x: pos.x, y: pos.y, radiusX: 0, radiusY: 0,
-        stroke: style.strokeColor ?? '#e63946',
-        strokeWidth: style.strokeWidth ?? 2,
-        opacity: style.strokeOpacity ?? 1,
-        fill: 'transparent',
-      });
-
-      // Small cross-hair to mark the center point while dragging
-      const T = 6;
-      this.centerMark = new Konva.Line({
-        points: [pos.x - T, pos.y, pos.x + T, pos.y, NaN, NaN, pos.x, pos.y - T, pos.x, pos.y + T],
-        stroke: style.strokeColor ?? '#e63946',
-        strokeWidth: 1,
-        opacity: 0.6,
-      });
-
-      interactionLayer.add(this.previewEllipse, this.centerMark);
+const ellipseDraw: DrawPhase = {
+  startDraw(e) {
+    const style = toolRunner.getActiveStyle() || {};
+    
+    // Remember start position for radius calculation on endDraw
+    startPos = { x: e.x, y: e.y };
+    
+    return new Konva.Ellipse({
+      x: e.x, y: e.y,
+      radiusX: 0, radiusY: 0,
+      stroke: style.strokeColor ?? '#e63946',
+      strokeWidth: style.strokeWidth ?? 2,
+      opacity: style.strokeOpacity ?? 1,
+      fill: 'transparent',
     });
+  },
 
-    stage.on('mousemove.ellipse touchmove.ellipse', () => {
-      if (!this.isDrawing || !this.previewEllipse) return;
-      const pos = this.ctx.stageManager.getLayerPointer();
-      if (!pos) return;
-      const dx = pos.x - this.centerPos.x;
-      const dy = pos.y - this.centerPos.y;
-      const radius = Math.sqrt(dx * dx + dy * dy);
-      this.previewEllipse.setAttrs({ radiusX: radius, radiusY: radius });
-      interactionLayer.draw();
-    });
+  midDraw(e) {
+    const shape = toolRunner.getCurrentShape() as Konva.Ellipse;
+    if (!shape || !startPos) return;
+    
+    // Calculate radius based on distance from start to current position
+    const dx = e.x - startPos.x;
+    const dy = e.y - startPos.y;
+    const radius = Math.sqrt(dx * dx + dy * dy);
+    
+    shape.setAttrs({ radiusX: radius, radiusY: radius });
+    shape.getLayer()?.batchDraw();
+  },
 
-    stage.on('mouseup.ellipse touchend.ellipse', () => {
-      if (!this.isDrawing || !this.previewEllipse) return;
-      this.isDrawing = false;
+  endDraw() {
+    if (!startPos || !toolRunner.getCurrentShape()) return null;
+    
+    const shape = toolRunner.getCurrentShape() as Konva.Ellipse;
+    if (!shape) return null;
+    
+    // Calculate final radius from stored start position and current ellipse attrs
+    const style = toolRunner.getActiveStyle();
+    
+    // The ellipse center is at startPos, and its radiusX/Y were updated during midDraw
+    // We need to get the actual rendered radius
+    const points = shape.attrs.points as number[];
+    let finalRadius = 0;
+    if (points.length >= 2) {
+      finalRadius = Math.sqrt(
+        Math.pow(points[1] - startPos.x, 2) + Math.pow(points[3] - startPos.y, 2)
+      );
+    } else {
+      // Fallback: use radiusX from the shape's current state
+      finalRadius = (shape as any).radiusX ?? 0;
+    }
+    
+    if (finalRadius < 4) return null;
 
-      const pos = this.ctx.stageManager.getLayerPointer();
+    const pageHeightPts = toolRunner.getPageHeightPts();
+    if (!pageHeightPts) return null;
 
-      this.previewEllipse.destroy();
-      this.previewEllipse = null;
-      this.centerMark?.destroy();
-      this.centerMark = null;
+    // Convert start position to PDF coordinates
+    const pdfCenter = konvaToPdf(startPos.x, startPos.y, pageHeightPts);
 
-      if (!pos) return;
-
-      const dx = pos.x - this.centerPos.x;
-      const dy = pos.y - this.centerPos.y;
-      const radius = Math.sqrt(dx * dx + dy * dy);
-
-      if (radius < 4) return;
-
-      const h = this.ctx.getPageHeightPts();
-      const pdfCenter = konvaToPdf(this.centerPos.x, this.centerPos.y, h);
-
-      const markup: EllipseMarkup = {
-        id: generateId(),
-        type: 'ellipse',
-        pageIndex: this.ctx.getPageIndex(),
-        style: { ...this.ctx.getStyle() },
-        cx: pdfCenter.x,
-        cy: pdfCenter.y,
-        rx: radius,
-        ry: radius,
-      };
-      this.ctx.onMarkupAdd(markup);
-    });
+    return {
+      id: generateId(),
+      type: 'ellipse',
+      pageIndex: toolRunner.getPageIndex(),
+      style: { ...(style ?? {}) },
+      cx: pdfCenter.x,
+      cy: pdfCenter.y,
+      rx: finalRadius / 72,
+      ry: finalRadius / 72,
+    } as any;
   }
+};
 
-  deactivate(): void {
-    const { stage } = this.ctx.stageManager;
-    stage.off('mousedown.ellipse touchstart.ellipse');
-    stage.off('mousemove.ellipse touchmove.ellipse');
-    stage.off('mouseup.ellipse touchend.ellipse');
-    stage.container().style.cursor = 'default';
-    if (this.previewEllipse) { this.previewEllipse.destroy(); this.previewEllipse = null; }
-    if (this.centerMark) { this.centerMark.destroy(); this.centerMark = null; }
-    this.isDrawing = false;
-  }
-}
+export const ellipseTool: ToolProtocol = {
+  id: 'ellipse',
+  name: 'Ellipse',
+  key: 'e',
+  draw: ellipseDraw,
+};

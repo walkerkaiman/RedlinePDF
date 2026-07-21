@@ -1,79 +1,71 @@
 import Konva from 'konva';
-import { BaseTool, type ToolContext } from './baseTool.ts';
-import { konvaToPdf } from '../geometry/transform.ts';
+import { toolRunner } from './toolRunner.ts';
+import type { ToolProtocol, DrawPhase } from './toolProtocol.ts';
 import { generateId } from '../model/document.ts';
-import type { LineMarkup } from '../model/document.ts';
+import { konvaPointsToPdf } from '../geometry/transform.ts';
 
-export class LineTool extends BaseTool {
-  private isDrawing = false;
-  private startPos = { x: 0, y: 0 };
-  private previewLine: Konva.Line | null = null;
-
-  constructor(ctx: ToolContext) {
-    super('line', ctx);
-  }
-
-  activate(): void {
-    const { stage, interactionLayer } = this.ctx.stageManager;
-    stage.container().style.cursor = 'crosshair';
-
-    stage.on('mousedown.line touchstart.line', () => {
-      const pos = this.ctx.stageManager.getLayerPointer();
-      if (!pos) return;
-      this.isDrawing = true;
-      this.startPos = { ...pos };
-      const style = this.ctx.getStyle();
-      this.previewLine = new Konva.Line({
-        points: [pos.x, pos.y, pos.x, pos.y],
-        stroke: style.strokeColor ?? '#e63946',
-        strokeWidth: style.strokeWidth ?? 2,
-        opacity: style.strokeOpacity ?? 1,
-        lineCap: 'round',
-      });
-      interactionLayer.add(this.previewLine);
+/** Declarative line drawing protocol — replaces imperative BaseTool/activate() */
+const lineDraw: DrawPhase = {
+  startDraw(e) {
+    const style = toolRunner.getActiveStyle() || {};
+    
+    // Create live preview shape (zero-length initially, grows during drag)
+    return new Konva.Line({
+      points: [e.x, e.y, e.x, e.y],
+      stroke: (style.strokeColor ?? '#e63946') as string,
+      strokeWidth: (style.strokeWidth ?? 2) as number,
+      opacity: (style.strokeOpacity ?? 1) as number,
+      lineCap: 'round' as any,
     });
+  },
 
-    stage.on('mousemove.line touchmove.line', () => {
-      if (!this.isDrawing || !this.previewLine) return;
-      const pos = this.ctx.stageManager.getLayerPointer();
-      if (!pos) return;
-      this.previewLine.points([this.startPos.x, this.startPos.y, pos.x, pos.y]);
-      interactionLayer.draw();
-    });
+  midDraw(e) {
+    // Update endpoint to track cursor — shape is already on interaction layer
+    const shape = toolRunner.getCurrentShape() as Konva.Line;
+    if (!shape) return;
+    
+    const points = shape.points() as number[];
+    if (points.length >= 4) {
+      shape.points([points[0], points[1], e.x, e.y]);
+    } else {
+      shape.points([...points.slice(0, 2), e.x, e.y]);
+    }
+    
+    // Trigger redraw via layer
+    shape.getLayer()?.batchDraw();
+  },
 
-    stage.on('mouseup.line touchend.line', () => {
-      if (!this.isDrawing || !this.previewLine) return;
-      this.isDrawing = false;
-      this.previewLine.destroy();
-      this.previewLine = null;
+  endDraw() {
+    const style = toolRunner.getActiveStyle() || {};
+    const shape = toolRunner.getCurrentShape() as Konva.Line;
+    
+    if (!shape) return null;
+    
+    const points = shape.points() as number[];
+    if (points.length < 4) return null; // Need start + end points
 
-      const pos = this.ctx.stageManager.getLayerPointer();
-      if (!pos) return;
+    // Convert screen→PDF coordinates with Y-flip for bottom-left origin
+    const pageHeightPts = toolRunner.getPageHeightPts();
+    if (!pageHeightPts) return null;
 
-      const h = this.ctx.getPageHeightPts();
-      const p1 = konvaToPdf(this.startPos.x, this.startPos.y, h);
-      const p2 = konvaToPdf(pos.x, pos.y, h);
+    const pdfStart = konvaPointsToPdf([points[0], points[1]], pageHeightPts);
+    const pdfEnd = konvaPointsToPdf([points[points.length - 2], points[points.length - 1]], pageHeightPts);
 
-      if (Math.abs(p2.x - p1.x) < 2 && Math.abs(p2.y - p1.y) < 2) return;
-
-      const markup: LineMarkup = {
-        id: generateId(),
-        type: 'line',
-        pageIndex: this.ctx.getPageIndex(),
-        style: { ...this.ctx.getStyle() },
-        x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y,
-      };
-      this.ctx.onMarkupAdd(markup);
-    });
+    // Build the markup object for ADD_MARKUP mutation
+    return {
+      id: generateId(),
+      type: 'line',
+      pageIndex: toolRunner.getPageIndex(),
+      style: { ...(style ?? {}) },
+      x1: pdfStart[0], y1: pdfStart[1],
+      x2: pdfEnd[0], y2: pdfEnd[1],
+    } as any;
   }
+};
 
-  deactivate(): void {
-    const { stage } = this.ctx.stageManager;
-    stage.off('mousedown.line touchstart.line');
-    stage.off('mousemove.line touchmove.line');
-    stage.off('mouseup.line touchend.line');
-    stage.container().style.cursor = 'default';
-    if (this.previewLine) { this.previewLine.destroy(); this.previewLine = null; }
-    this.isDrawing = false;
-  }
-}
+export const lineTool: ToolProtocol = {
+  id: 'line',
+  name: 'Line',
+  key: 'l', // Keyboard shortcut hint
+  draw: lineDraw,
+};

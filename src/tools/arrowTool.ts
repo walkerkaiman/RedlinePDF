@@ -1,83 +1,72 @@
 import Konva from 'konva';
-import { BaseTool, type ToolContext } from './baseTool.ts';
-import { konvaToPdf } from '../geometry/transform.ts';
+import { toolRunner } from './toolRunner.ts';
+import type { ToolProtocol, DrawPhase } from './toolProtocol.ts';
 import { generateId } from '../model/document.ts';
-import type { ArrowMarkup } from '../model/document.ts';
+import { konvaToPdf } from '../geometry/transform.ts';
 
-export class ArrowTool extends BaseTool {
-  private isDrawing = false;
-  private startPos = { x: 0, y: 0 };
-  private previewArrow: Konva.Arrow | null = null;
-
-  constructor(ctx: ToolContext) {
-    super('arrow', ctx);
-  }
-
-  activate(): void {
-    const { stage, interactionLayer } = this.ctx.stageManager;
-    stage.container().style.cursor = 'crosshair';
-
-    stage.on('mousedown.arrow touchstart.arrow', () => {
-      const pos = this.ctx.stageManager.getLayerPointer();
-      if (!pos) return;
-      this.isDrawing = true;
-      this.startPos = { ...pos };
-      const style = this.ctx.getStyle();
-      const sw = style.strokeWidth ?? 2;
-      this.previewArrow = new Konva.Arrow({
-        points: [pos.x, pos.y, pos.x, pos.y],
-        stroke: style.strokeColor ?? '#e63946',
-        strokeWidth: sw,
-        opacity: style.strokeOpacity ?? 1,
-        fill: style.strokeColor ?? '#e63946',
-        pointerLength: Math.max(10, sw * 4),
-        pointerWidth: Math.max(8, sw * 3),
-        lineCap: 'round',
-      });
-      interactionLayer.add(this.previewArrow);
+const arrowDraw: DrawPhase = {
+  startDraw(e) {
+    const style = toolRunner.getActiveStyle() || {};
+    
+    return new Konva.Arrow({
+      points: [e.x, e.y, e.x, e.y],
+      stroke: style.strokeColor ?? '#e63946',
+      strokeWidth: style.strokeWidth ?? 2,
+      opacity: style.strokeOpacity ?? 1,
+      fill: style.fillColor ?? 'transparent',
+      pointerLength: Math.max(8, (style.strokeWidth ?? 2) * 3),
+      pointerWidth: Math.max(6, (style.strokeWidth ?? 2) * 2.5),
+      lineCap: 'round' as any,
     });
+  },
 
-    stage.on('mousemove.arrow touchmove.arrow', () => {
-      if (!this.isDrawing || !this.previewArrow) return;
-      const pos = this.ctx.stageManager.getLayerPointer();
-      if (!pos) return;
-      this.previewArrow.points([this.startPos.x, this.startPos.y, pos.x, pos.y]);
-      interactionLayer.draw();
-    });
+  midDraw(e) {
+    const shape = toolRunner.getCurrentShape() as Konva.Arrow;
+    if (!shape) return;
+    
+    const points = shape.points() as number[];
+    if (points.length >= 4) {
+      shape.points([points[0], points[1], e.x, e.y]);
+    } else {
+      shape.points([...points.slice(0, 2), e.x, e.y]);
+    }
+    
+    shape.getLayer()?.batchDraw();
+  },
 
-    stage.on('mouseup.arrow touchend.arrow', () => {
-      if (!this.isDrawing || !this.previewArrow) return;
-      this.isDrawing = false;
-      this.previewArrow.destroy();
-      this.previewArrow = null;
+  endDraw() {
+    const style = toolRunner.getActiveStyle();
+    const shape = toolRunner.getCurrentShape() as Konva.Arrow;
+    
+    if (!shape) return null;
+    
+    const pageHeightPts = toolRunner.getPageHeightPts();
+    if (!pageHeightPts) return null;
 
-      const pos = this.ctx.stageManager.getLayerPointer();
-      if (!pos) return;
+    const points = shape.points() as number[];
+    if (points.length < 4 || 
+        Math.abs(points[0] - points[2]) < 2 && Math.abs(points[1] - points[3]) < 2) {
+      return null;
+    }
 
-      const h = this.ctx.getPageHeightPts();
-      const p1 = konvaToPdf(this.startPos.x, this.startPos.y, h);
-      const p2 = konvaToPdf(pos.x, pos.y, h);
+    const p1 = konvaToPdf(points[0], points[1], pageHeightPts);
+    const p2 = konvaToPdf(points[points.length - 2], 
+                          points[points.length - 1], pageHeightPts);
 
-      if (Math.abs(p2.x - p1.x) < 2 && Math.abs(p2.y - p1.y) < 2) return;
-
-      const markup: ArrowMarkup = {
-        id: generateId(),
-        type: 'arrow',
-        pageIndex: this.ctx.getPageIndex(),
-        style: { ...this.ctx.getStyle() },
-        x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y,
-      };
-      this.ctx.onMarkupAdd(markup);
-    });
+    return {
+      id: generateId(),
+      type: 'arrow',
+      pageIndex: toolRunner.getPageIndex(),
+      style: { ...(style ?? {}) },
+      x1: p1.x, y1: p1.y,
+      x2: p2.x, y2: p2.y,
+    } as any;
   }
+};
 
-  deactivate(): void {
-    const { stage } = this.ctx.stageManager;
-    stage.off('mousedown.arrow touchstart.arrow');
-    stage.off('mousemove.arrow touchmove.arrow');
-    stage.off('mouseup.arrow touchend.arrow');
-    stage.container().style.cursor = 'default';
-    if (this.previewArrow) { this.previewArrow.destroy(); this.previewArrow = null; }
-    this.isDrawing = false;
-  }
-}
+export const arrowTool: ToolProtocol = {
+  id: 'arrow',
+  name: 'Arrow',
+  key: 'a',
+  draw: arrowDraw,
+};
