@@ -1,6 +1,8 @@
 import Konva from 'konva';
 import type { ToolProtocol } from './toolProtocol';
+import { appState } from '../state/appState.ts';
 import { toolRunner } from './toolRunner';
+import { konvaToPdf } from '../geometry/transform.ts';
 import { generateId, BoxMarkup } from '../model/document.ts';
 
 let isDrawing = false;
@@ -12,9 +14,9 @@ const boxDrawPhase = {
     isDrawing = true;
     const sm = toolRunner.getStageManager();
     if (!sm?.interactionLayer) return null;
-    
+
     startPos = { x: e.x, y: e.y };
-    
+
     previewRect = new Konva.Rect({
       x: e.x, y: e.y, width: 0, height: 0,
       stroke: appState.state.activeStyle.strokeColor || '#e63946',
@@ -27,14 +29,13 @@ const boxDrawPhase = {
 
   midDraw(e: any) {
     if (!isDrawing || !previewRect || !startPos) return null;
-    
+
     const x = Math.min(startPos.x, e.x);
     const y = Math.min(startPos.y, e.y);
     const w = Math.abs(e.x - startPos.x);
     const h = Math.abs(e.y - startPos.y);
-    
-    previewRect.setAttrs({ x, y, width: w, height: h });
 
+    previewRect.setAttrs({ x, y, width: w, height: h });
     toolRunner.getStageManager()?.interactionLayer.draw();
   },
 
@@ -43,22 +44,21 @@ const boxDrawPhase = {
 
     isDrawing = false;
     const sm = toolRunner.getStageManager();
-    
+
     const h = toolRunner.getPageHeightPts();
     let x = Math.min(startPos!.x, previewRect.x() + previewRect.width());
     let y = Math.min(startPos!.y, previewRect.y() + previewRect.height());
 
-    // Ensure minimum size for valid markup (10 pixels)
     if (previewRect.width() < 10 || previewRect.height() < 10) {
       previewRect.destroy();
       return null;
     }
 
-    const pdfPoints = toolRunner.konvaToPdf([x, y], h);
-    
+    const pdf = konvaToPdf(x, y, h);
+
     const markup: BoxMarkup = {
       id: generateId(), type: 'box', pageIndex: toolRunner.getPageIndex(),
-      x: pdfPoints[0], y: pdfPoints[1], width: 50, height: 30, style: appState.state.activeStyle || {},
+      x: pdf.x, y: pdf.y, width: 50, height: 30, style: appState.state.activeStyle || {},
     };
 
     previewRect.destroy();
