@@ -5,8 +5,8 @@
 
 import { readFileSync, writeFileSync } from 'node:fs';
 
-const v = process.argv[2];
-if (!/^\d+\.\d+\.\d+$/.test(v ?? '')) {
+const v = (process.argv[2] ?? '').trim().replace(/^v/, '');
+if (!/^\d+\.\d+\.\d+$/.test(v)) {
   console.error(`Version must be X.Y.Z semver, got: ${v}`);
   process.exit(1);
 }

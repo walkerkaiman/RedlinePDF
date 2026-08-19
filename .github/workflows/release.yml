@@ -84,9 +84,10 @@ jobs:
           node-version: '20'
           cache: 'npm'
 
-      # Keep the shipped version aligned with this tag (deb filename + in-app __APP_VERSION__)
+      # Keep the shipped version aligned with this tag (deb filename + in-app __APP_VERSION__).
+      # Plain variable — no bash-isms, so it works on Windows PowerShell too. Script strips a leading 'v'.
       - name: Sync app version to release tag
-        run: node scripts/sync-release-version.mjs "${GITHUB_REF_NAME#v}"
+        run: node scripts/sync-release-version.mjs "$GITHUB_REF_NAME"
 
       - name: Install frontend dependencies
         run: npm install
