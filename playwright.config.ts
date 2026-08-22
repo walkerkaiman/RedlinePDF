@@ -2,7 +2,9 @@ import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
   testDir: './tests',
-  
+  // Playwright collects BOTH *.spec.* and *.test.* by default; the unit tests import @vitest/runner, whose describe() crashes outside a vitest worker. Scope to e2e specs only (mirrors what vitest.config.ts excludes in reverse).
+  testMatch: /.*\.spec\.[jt]s$/,
+
   webServer: {
     command: 'npm run dev',
     port: 5173,

@@ -3,12 +3,8 @@ import { toolRunner } from './toolRunner';
 import { konvaToPdf } from '../geometry/transform';
 import { generateId } from '../model/document';
 
-const countDrawPhase = {
-  startDraw() {},
-  midDraw() {},
-  endDraw() { return null; },
-  
-  onClick(e: { x: number, y: number }) {
+/** Commit a count stamp at the Konva-space click point — converted to PDF space before dispatch. */
+function countOnClick(e: { x: number, y: number }): void {
     const activeCatId = toolRunner.getAppState().state.activeCountCategoryId;
     if (!activeCatId) return;
 
@@ -39,12 +35,12 @@ const countDrawPhase = {
     };
 
     toolRunner.getAppState().mutate('ADD_MARKUP', { markup, pageIndex: currentPageIndex });
-  },
-};
+}
 
+/** Click-only tool — ToolRunner routes mousedown to protocol.onClick only when draw is absent; a no-op draw phase would swallow the click in endDraw() and never commit. */
 export const countTool: ToolProtocol = {
   id: 'count',
   name: 'Count Stamp',
   key: 'c',
-  draw: countDrawPhase,
+  onClick: (e) => countOnClick(e),
 };

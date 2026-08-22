@@ -527,6 +527,11 @@ async function loadPdfFile(bytes: Uint8Array, fileName: string, filePath: string
     redoAvailable: false,
   });
 
+  // A freshly loaded document must be count-able immediately — the Count tool's onClick
+  // bails when no category is selected. Seed one default per project (projects are rebuilt
+  // empty on every load; restored projects keep whatever categories they saved).
+  addCountCategory();
+
   // Record in recent files; cache bytes in browser (no OS path available)
   let cacheKey: string | null = null;
   if (!filePath) {
@@ -707,7 +712,16 @@ function buildToolContext(): ToolContext {
   };
 }
 
-// ── Tool switching — uses ToolRunner singleton (no BaseTool classes) ───────
+// ── Tool switching — uses toolRunner singleton (no BaseTool classes) ───────
+
+/** Test seam for Playwright e2e assertions — read-only views over live state that are NOT reachable via the DOM
+ * (Konva renders to raw <canvas> pixels; markup objects and active tool live in module scope). Exposed only as
+ * window.__REDLINE_DEBUG so specs can assert pipeline effects deterministically without pixel checks. */
+(window as unknown as { __REDLINE_DEBUG?: object })['__REDLINE_DEBUG'] ??= {
+  get activeTool(): string | null { return appState.state.activeTool; },
+  get markups(): number { const p = currentPage(); return p ? p.markups.length : -1; },
+  get markupTypes(): string[] { const p = currentPage(); return p ? (p.markups.map(m => m.type) as string[]) : []; },
+};
 
 function activateCurrentTool(): void {
   if (!stageManager) return;
