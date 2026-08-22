@@ -38,7 +38,7 @@ const countDrawPhase = {
       size: 10,
     };
 
-    toolRunner.getAppState().mutate('ADD_MARKUP', { markup });
+    toolRunner.getAppState().mutate('ADD_MARKUP', { markup, pageIndex: currentPageIndex });
   },
 };
 
