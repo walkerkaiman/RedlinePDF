@@ -26,3 +26,8 @@ src-tauri/gen/schemas/
 *.njsproj
 *.sln
 *.sw?
+
+# playwright artifacts + mcp browser sessions
+.playwright-mcp/
+test-results/
+playwright-report/
