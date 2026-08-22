@@ -38,14 +38,16 @@ export class ToolRunner {
     return ToolRunner._instance;
   }
 
-  /** Activate a tool protocol — binds listeners to the stage. */
+  /** Activate a tool protocol — binds listeners to the stage once it exists. */
   setActiveTool(protocol: ToolProtocol | null): void {
     // First, deactivate any active tool (unbinds its listeners).
     if (this._activeProtocol) this.deactivate();
-    
-    this._activeProtocol = protocol;
 
-    if (!protocol || !this._stageManager?.stage || !this._ctx) return;
+    this._activeProtocol = protocol;
+    if (!protocol) return;
+
+    // Stage not created yet (no page loaded) — init() re-binds once it exists.
+    if (!this._stageManager?.stage) return;
 
     const stage = this._stageManager.stage;
     
@@ -61,11 +63,18 @@ export class ToolRunner {
   init(stageManager: KonvaStageManager): void {
     if (this._stageManager) return; // Already initialized
     this._stageManager = stageManager;
+    console.log('[ToolRunner] Initialized — stage manager bound.');
+    // If a tool was requested before the first page loaded, bind it now.
+    if (this._activeProtocol) {
+      const p = this._activeProtocol;
+      this._activeProtocol = null;
+      this.setActiveTool(p);
+    }
   }
 
-  /** Get the currently active style from DrawContext. */
+  /** Get the currently active style for tools that draw shapes. */
   getActiveStyle(): MarkupStyle | null {
-    return this._ctx?.style ?? null;
+    return appState.state.activeStyle;
   }
 
   /** Expose current preview shape for use by protocol endDraw/midDraw. */
@@ -85,9 +94,14 @@ export class ToolRunner {
     return appState.state.activePageIndex;
   }
 
-  /** Set the DrawContext (called from main.ts on each event). */
-  setCtx(ctx: DrawContext): void {
-    this._ctx = ctx;
+  /** Resolve the pointer position in stage space for a Konva mouse event. */
+  private _eventPos(e: Konva.KonvaEventObject<MouseEvent>): { x: number; y: number } | null {
+    const sm = this._stageManager;
+    if (!sm?.stage) return null;
+    // Stage-space coordinates — same source main.ts's status bar uses (markupLayer-relative).
+    const pos = sm.markupLayer.getRelativePointerPosition();
+    if (!pos) return null;
+    return { x: pos.x, y: pos.y };
   }
 
   /** Internal helper to run the onDragStart / onClick handler. */
@@ -95,20 +109,27 @@ export class ToolRunner {
     const protocol = this._activeProtocol;
     if (!protocol) return;
 
-    // Use the shared ctx position (set by main.ts on each event).
-    const pos = { x: this._ctx!.x, y: this._ctx!.y };
+    const pos = this._eventPos(e);
+    if (!pos) return;
 
     console.log(`[ToolRunner] ${protocol.id} mousedown at (${pos.x.toFixed(1)}, ${pos.y.toFixed(1)})`);
-
     if (protocol.draw) {
       // Shape-drawing tool — call its startDraw.
       const result = protocol.draw.startDraw(pos);
-      if (!result) return;
 
-      // Store the preview shape on the interaction layer.
-      this._previewShape = result;
-      
-      console.log(`[ToolRunner] ${protocol.id} draw started, shape created.`);
+      // Store the preview shape on the interaction layer. Some tools add their own
+      // preview to a layer inside startDraw; Konva's add() re-parents, so this is idempotent.
+      if (result) {
+        this._previewShape = result;
+        const sm = this._stageManager;
+        if (sm?.interactionLayer && !(result as Konva.Node).getStage()) {
+          (result as unknown as Konva.Node).listening(false); // preview must not swallow the drag events
+          sm.interactionLayer.add(result as unknown as Konva.Shape);
+        }
+        sm?.interactionLayer?.draw();
+
+        console.log(`[ToolRunner] ${protocol.id} draw started, shape created.`);
+      }
     } else if (protocol.onClick) {
       // Click-only tool — execute immediately.
       protocol.onClick(pos);
@@ -136,11 +157,13 @@ export class ToolRunner {
   /** Internal helper to run the onDragMove handler (during drag). */
   private handleMouseMove(e: Konva.KonvaEventObject<MouseEvent>): void {
     const protocol = this._activeProtocol;
-    if (!protocol?.draw || !this._ctx) return;
+    if (!protocol?.draw) return;
 
-    const pos = { x: this._ctx.x, y: this._ctx.y };
-    
+    const pos = this._eventPos(e);
+    if (!pos) return;
+
     console.log(`[ToolRunner] ${protocol.id} midDraw at (${pos.x.toFixed(1)}, ${pos.y.toFixed(1)})`);
+    protocol.draw.midDraw?.(pos);
   }
 
   /** Internal helper to run the onDragEnd handler (on mouseup). */
@@ -180,30 +203,27 @@ export class ToolRunner {
     if (!markup) return;
 
     try {
-      appState.mutate('ADD_MARKUP', { markup, pageIndex: 0 }); // TODO Phase 4: get page from AppStateData.activePageIndex
+      appState.mutate('ADD_MARKUP', { markup, pageIndex: this.getPageIndex() });
     } catch (err) {
       console.error('[ToolRunner] Failed to dispatch ADD_MARKUP:', err);
     }
   }
 
-  /** Unbind mousemove + mouseup listeners after drag ends. */
+  /** Unbind mousemove + mouseup listeners after drag ends or on tool deactivation. */
   private unbindDragListeners(): void {
     const stage = this._stageManager?.stage;
-    if (stage) {
-      // Note: In Konva v8, you can't remove individual handlers bound with on() unless you keep references.
-      // Since we only bind mousedown once and mousemove/mouseup after each drag starts, 
-      // the simplest approach is to let them re-fire harmlessly (the _activeProtocol check in handlers will fail).
-      // Or better: set _activeProtocol = null during drag, then restore it.
-      console.log('[ToolRunner] Drag ended, listeners unbound.');
-    } else {
-      console.log('[ToolRunner] No stage to unbind listeners from.');
-    }
+    if (!stage) return;
+    // Explicitly off() the exact handlers we bound — Konva v10's .off('type') without a callback removes all, but keeping refs is safer for future partial rebinds.
+    if (this._mousemoveHandler) stage.off('mousemove', this._mousemoveHandler);
+    if (this._mouseupHandler)   stage.off('mouseup',   this._mouseupHandler);
+    this._mousemoveHandler = undefined;
+    this._mouseupHandler = undefined;
   }
 
   /** Deactivate the current tool — removes listeners and preview shapes. */
   deactivate(): void {
     const protocol = this._activeProtocol;
-    
+
     if (protocol) {
       console.log(`[ToolRunner] Deactivated tool: ${protocol.id}.`);
     } else {
@@ -217,7 +237,11 @@ export class ToolRunner {
       this._stageManager?.stage?.batchDraw();
     }
 
-    // Unbind mousedown listener.
+    // Unbind any lingering drag listeners so they don't keep firing with stale protocol refs.
+    this.unbindDragListeners();
+
+    // Unbind mousedown listener — Konva's namespaced events ('mousedown.pen', etc.) are stored
+    // under their own key, so off('mousedown') here only removes this runner's handler.
     const stage = this._stageManager?.stage;
     if (stage) {
       stage.off('mousedown');

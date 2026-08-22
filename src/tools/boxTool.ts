@@ -43,22 +43,23 @@ const boxDrawPhase = {
     if (!isDrawing || !previewRect) return null;
 
     isDrawing = false;
-    const sm = toolRunner.getStageManager();
 
+    // previewRect attrs are in markupLayer (PDF-point) units — same space every tool's
+    // event coords use. Convert the bottom-left corner to PDF y-up space for storage.
     const h = toolRunner.getPageHeightPts();
-    let x = Math.min(startPos!.x, previewRect.x() + previewRect.width());
-    let y = Math.min(startPos!.y, previewRect.y() + previewRect.height());
 
-    if (previewRect.width() < 10 || previewRect.height() < 10) {
+    if (previewRect.width() < 2 || previewRect.height() < 2) {
       previewRect.destroy();
       return null;
     }
 
-    const pdf = konvaToPdf(x, y, h);
+    // Konva top-left → PDF bottom-left: flip the y axis using the rect's BOTTOM edge.
+    const pdf = konvaToPdf(previewRect.x(), previewRect.y() + previewRect.height(), h);
 
     const markup: BoxMarkup = {
       id: generateId(), type: 'box', pageIndex: toolRunner.getPageIndex(),
-      x: pdf.x, y: pdf.y, width: 50, height: 30, style: appState.state.activeStyle || {},
+      x: pdf.x, y: pdf.y, width: Math.abs(previewRect.width()), height: Math.abs(previewRect.height()),
+      style: appState.state.activeStyle || {},
     };
 
     previewRect.destroy();

@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "playwright-mcp": {
+      "command": "npx",
+      "args": ["@anthropic/mcp-playwright"],
+      "env": {}
+    }
+  }
+}

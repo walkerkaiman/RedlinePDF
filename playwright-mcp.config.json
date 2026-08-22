@@ -1,0 +1,7 @@
+{
+  "name": "redlinepdf",
+  "command": "npx playwright-mcp",
+  "args": [
+    "--port", "3000"
+  ]
+}

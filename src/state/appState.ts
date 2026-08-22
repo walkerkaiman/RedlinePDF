@@ -1,7 +1,6 @@
 import type { CountSymbol, LinearUnit, Markup, MarkupStyle, MarkupType, UnitsSettings } from '../model/document.ts';
 import type { MutationKind } from './mutationTypes.ts';
 import { DEFAULT_FILL_STYLE, DEFAULT_STROKE_STYLE, DEFAULT_TEXT_STYLE, DEFAULT_UNITS } from '../model/document.ts';
-import { setupUndoTracking } from './undoTracking.ts';
 
 export type ToolType =
   | 'select' | 'pan'
@@ -208,9 +207,6 @@ class AppStateManager {
     this.registerMutationHandler('LOAD_PROJECT_DATA', () => {
       // Payload is ignored here; loading logic happens elsewhere, this is just to prevent hook execution
     });
-
-    // Wire up the undo tracking pre/post-hook middleware.
-    setupUndoTracking();
   }
 
   mutate(kind: MutationKind, payload: any): void {

@@ -21,14 +21,17 @@ const countDrawPhase = {
     // The AppStateManager doesn't have getCurrentPage(), so we need to work with what exists
     // For now, use a simple approach that matches the existing pattern
     
-    // Create markup with basic count category info
+    // Create markup with basic count category info. Model coords are PDF space
+    // (bottom-left origin), so convert the Konva-space click position first — every
+    // other tool does this in endDraw/onClick before committing via ADD_MARKUP.
+    const pdfPos = konvaToPdf(e.x, e.y, toolRunner.getPageHeightPts());
+
     const markup = {
       id: generateId(),
       type: 'count',
       pageIndex: currentPageIndex,
       style: { strokeColor: '#000000', strokeWidth: 1.5, strokeOpacity: 1 },
-      x: e.x,
-      y: e.y,
+      x: pdfPos.x, y: pdfPos.y,
       categoryId: activeCatId,
       symbol: '●',
       color: toolRunner.getAppState().state.activeCountCategoryId ? '#3b82f6' : '#000000',

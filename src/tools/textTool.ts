@@ -1,6 +1,7 @@
 import type { ToolProtocol } from './toolProtocol';
 import { toolRunner } from './toolRunner';
-import { generateId } from '../model/document';
+import { generateId } from '../model/document.ts';
+import { konvaToPdf } from '../geometry/transform.ts';
 
 let editor: HTMLTextAreaElement | null = null;
 let mirrorSpan: HTMLSpanElement | null = null;
@@ -77,14 +78,18 @@ function openNewEditor(kx: number, ky: number): void {
     
     if (!text || !stageManager) return;
 
+    // The model stores markup in PDF space (bottom-left origin, y-up), but kx/ky are
+    // Konva layer coords — convert before committing or the text renders at a flipped Y.
+    const pdfPos = konvaToPdf(kx, ky, stageManager.pageHeightPts);
+
     toolRunner.getAppState().mutate('ADD_MARKUP', {
       markup: {
         id: generateId(),
         type: 'text',
         pageIndex: toolRunner.getPageIndex(),
         style,
-        x: kx,
-        y: ky,
+        x: pdfPos.x,
+        y: pdfPos.y,
         width: screenW / scale,
         height: screenH / scale,
         text,

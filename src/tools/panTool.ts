@@ -1,45 +1,39 @@
 import type { ToolProtocol } from './toolProtocol';
 import { toolRunner } from './toolRunner';
 
-let isDragging = false;
-let startPos: { x: number; y: number } | null = null;
+// Closure state — survives between startDraw/midDraw/endDraw ticks.
+let _dragStartPos: { x: number; y: number } | null = null;
 
-const panDrawPhase = {
-  startDraw() {},
-  midDraw() {},
-  endDraw(): null { return null; },
-  
-  onClick(e: any) {
+const panDraw: import('./toolProtocol').DrawPhase = {
+  startDraw(e: any) {
     const stageManager = toolRunner.getStageManager();
-    if (!stageManager?.stage) return;
-    
-    isDragging = true;
-    startPos = { x: e.x, y: e.y };
+    if (!stageManager?.stage) return null;
+
+    _dragStartPos = { x: e.x, y: e.y };
     stageManager.stage.container().style.cursor = 'grabbing';
+    return null; // pan creates no shape — state lives in closure above
   },
-  
-  onDragMove(e: any) {
-    if (!isDragging || !startPos) return;
-    
-    const dx = e.x - startPos.x;
-    const dy = e.y - startPos.y;
+
+  midDraw(e: any) {
     const stageManager = toolRunner.getStageManager();
-    
-    if (stageManager?.stage) {
-      const oldPos = stageManager.stage.position();
-      stageManager.stage.position({ x: oldPos.x + dx, y: oldPos.y + dy });
-    }
+    if (!stageManager?.stage || !_dragStartPos) return null;
+
+    const dx = e.x - _dragStartPos.x;
+    const dy = e.y - _dragStartPos.y;
+
+    const oldPos = stageManager.stage.position();
+    stageManager.stage.position({ x: oldPos.x + dx, y: oldPos.y + dy });
+
+    return null; // no shape to update
   },
-  
-  onDragEnd() {
-    isDragging = false;
-    startPos = null;
-    
+
+  endDraw() {
     const stageManager = toolRunner.getStageManager();
-    if (stageManager?.stage) {
-      stageManager.stage.container().style.cursor = 'default';
-      stageManager.stage.batchDraw();
-    }
+    if (!stageManager?.stage) return null;
+
+    _dragStartPos = null;
+    stageManager.stage.container().style.cursor = 'default';
+    return null; // no markup — pan is a transient interaction
   },
 };
 
@@ -47,5 +41,5 @@ export const panTool: ToolProtocol = {
   id: 'pan',
   name: 'Pan/Hand',
   key: 'h',
-  draw: panDrawPhase,
+  draw: panDraw,
 };

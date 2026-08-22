@@ -27,18 +27,26 @@ import type { ToolType } from './state/appState.ts';
 import { toolRunner } from './tools/toolRunner';
 
 // Protocol objects — fully converted so far. Others stay as classes until migrated.
-
-// Protocol objects — fully converted so far. Others stay as classes until migrated.
 import { lineTool as lineToolProtocol } from './tools/lineTool.ts';
 import { arrowTool } from './tools/arrowTool.ts';
 import { ellipseTool } from './tools/ellipseTool.ts';
 import { polygonAreaTool } from './tools/polygonAreaTool.ts';
+import { boxTool } from './tools/boxTool.ts';
+import { textTool } from './tools/textTool.ts';
+import { countTool } from './tools/countTool.ts';
+import { panTool } from './tools/panTool.ts';
 
 const toolProtocols: Record<string, any> = {
   'line': lineToolProtocol,
   'arrow': arrowTool,
   'ellipse': ellipseTool,
   'polygon-area': polygonAreaTool,
+  // Migration commit (1455e54) dropped these four from the map — every click on their
+  // toolbar buttons resolved to setActiveTool(undefined), i.e. a dead tool with no listeners.
+  'box': boxTool,
+  'text': textTool,
+  'count': countTool,
+  'pan': panTool,
 };
 
 // ── App state ─────────────────────────────────────────────────────────────────
@@ -61,6 +69,7 @@ const redoStack: string[] = [];
 let pendingMeasureTool: ToolType | null = null;
 
 const MEASURE_TOOLS: ToolType[] = ['measure-linear', 'measure-rect', 'measure-poly'];
+
 
 // ── Toast notifications ───────────────────────────────────────────────────────
 
@@ -702,15 +711,26 @@ function buildToolContext(): ToolContext {
 
 function activateCurrentTool(): void {
   if (!stageManager) return;
-  
+
+  // Wire the runner to this stage exactly once. Must happen before the first
+  // setActiveTool call, otherwise _stageManager is null and no listener binds —
+  // pan/draw/text/count all die on click with "no reaction".
+  toolRunner.init(stageManager);
+
   const type = appState.state.activeTool;
   console.log(`[main] Switching to tool: ${type}`);
-  
+
   // ToolRunner handles event binding internally. Set protocol from appState.
   toolRunner.setActiveTool(toolProtocols[type]);
 }
 
-// ── Scale helpers ─────────────────────────────────────────────────────────────
+// ADD_MARKUP is dispatched from toolRunner._dispatchAdd() for every committed stroke, and also directly by countTool/textTool on click/commit. Without a registered handler appState.mutate('ADD_MARKUP', …) throws "No handler registered", which toolRunner's try/catch swallows — the visible bug: tools accept input but nothing renders. Registered here (not in appState._init()) because addMarkup()/addCountStamp() are module-scope functions in this file that touch stageManager, undo stacks and count legend/summary side effects; registering from state/appState.ts would be a circular import back into main.ts.
+appState.registerMutationHandler('ADD_MARKUP', ({ markup }: { markup: Markup }) => {
+  if (markup.type === 'count') addCountStamp(markup); // narrows via type discriminator to CountMarkup
+  else addMarkup(markup);
+});
+
+// ── Scale helpers ─────────────────────────────────────────────────────────
 
 
 /**
