@@ -6,7 +6,6 @@ import { createStage } from './canvas/stage.ts';
 import { initToolbar, showCanvas, updateCursorStatus } from './ui/toolbar.ts';
 import { initPropertiesPanel } from './ui/properties.ts';
 import { showModal, showExportOptionsDialog } from './ui/modal.ts';
-import { checkForUpdates } from './updater/updateChecker.ts';
 import { showWorking, hideWorking, updateWorking } from './ui/working.ts';
 import { autosaveProject, clearAutosave, importProjectFile, saveWithFilePicker, openSaveFilePicker, writeFileHandle, triggerDownload, cacheRecentFile, getCachedRecentFile, removeCachedRecentFile } from './storage/projectStore.ts';
 import { isTauri, openPdfFileNative, saveFileNative, openProjectFileNative, openRecentPdfNative, openRecentProjectNative, saveSnapshotToDesktop } from './tauri/integration.ts';
@@ -1679,44 +1678,6 @@ function setupRecentMenus(): void {
   });
 }
 
-// ── Update checker ────────────────────────────────────────────────────────────
-
-const CURRENT_VERSION = __APP_VERSION__ || '0.0.1';
-
-async function handleCheckUpdate(): Promise<void> {
-  if (!isTauri()) {
-    showToast('Updates are only available in the desktop app', 'info');
-    return;
-  }
-
-  const btn = document.getElementById('btn-check-update') as HTMLButtonElement;
-  if (btn) btn.disabled = true;
-
-  try {
-    showWorking('Checking for updates…');
-    const result = await checkForUpdates(CURRENT_VERSION);
-
-    switch (result.status) {
-      case 'up-to-date':
-        showToast(`You're up to date (${CURRENT_VERSION})`, 'info');
-        break;
-      case 'available':
-        await showModal(
-          'Update Available',
-          `Version ${result.latestVersion} is available (you have ${CURRENT_VERSION}).<br><a href="${result.downloadUrl}" target="_blank" style="color:#007bff">Download from GitHub</a>`,
-          'Got it',
-        );
-        break;
-      case 'error':
-        showToast('Failed to check for updates', 'warn');
-        break;
-    }
-  } finally {
-    hideWorking();
-    if (btn) btn.disabled = false;
-  }
-}
-
 // ── Bootstrap ─────────────────────────────────────────────────────────────────
 
 async function init(): Promise<void> {
@@ -1727,9 +1688,6 @@ async function init(): Promise<void> {
   setupKeyboardShortcuts();
   setupStateListeners();
   setupRecentMenus();
-
-  // Update checker
-  document.getElementById('btn-check-update')?.addEventListener('click', handleCheckUpdate);
 
   // Select tool is default
   appState.setTool('select');
