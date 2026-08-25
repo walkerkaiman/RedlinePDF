@@ -1,77 +1,78 @@
 import Konva from 'konva';
-import { BaseTool, type ToolContext } from './baseTool.ts';
-import { konvaPointsToPdf } from '../geometry/transform.ts';
+import { toolRunner } from './toolRunner.ts';
+import type { ToolProtocol, DrawPhase } from './toolProtocol.ts';
 import { generateId } from '../model/document.ts';
-import type { PenMarkup } from '../model/document.ts';
+import { konvaPointsToPdf } from '../geometry/transform.ts';
 
-export class PenTool extends BaseTool {
-  private isDrawing = false;
-  private currentLine: Konva.Line | null = null;
-  private currentPoints: number[] = [];
+/**
+ * Declarative freehand pen protocol — replaces the class-based PenTool.
+ *
+ * The old BaseTool class was orphaned by migration commit 1455e54 (toolProtocol
+ * conversion): it imported nothing and was never instantiated, while 'pen' had
+ * no entry in main.ts's toolProtocols map — so selecting the Pen tool bound zero
+ * listeners and every stroke was silently discarded ("pen not drawing"). This
+ * file is now a real ToolProtocol; see tests/pen-tool.spec.ts for the regression.
+ */
 
-  constructor(ctx: ToolContext) {
-    super('pen', ctx);
-  }
+const MIN_COMMIT_POINTS = 4; // flat [x,y] pairs — two distinct points minimum (matches the old class's <4 discard)
 
-  activate(): void {
-    const { stage, interactionLayer } = this.ctx.stageManager;
-    stage.container().style.cursor = 'crosshair';
+const penDraw: DrawPhase = {
+  startDraw(e) {
+    const style = toolRunner.getActiveStyle() || {};
 
-    stage.on('mousedown.pen touchstart.pen', () => {
-      const pos = this.ctx.stageManager.getLayerPointer();
-      if (!pos) return;
-      this.isDrawing = true;
-      this.currentPoints = [pos.x, pos.y];
-      const style = this.ctx.getStyle();
-      this.currentLine = new Konva.Line({
-        points: [...this.currentPoints],
-        stroke: style.strokeColor ?? '#e63946',
-        strokeWidth: style.strokeWidth ?? 2,
-        opacity: style.strokeOpacity ?? 1,
-        tension: 0.3,
-        lineCap: 'round',
-        lineJoin: 'round',
-      });
-      interactionLayer.add(this.currentLine);
+    // Live preview line on a single seed point; midDraw appends cursor positions.
+    return new Konva.Line({
+      points: [e.x, e.y],
+      stroke: (style.strokeColor ?? '#e63946') as string,
+      strokeWidth: (style.strokeWidth ?? 2) as number,
+      opacity: (style.strokeOpacity ?? 1) as number,
+      tension: 0.3,
+      lineCap: 'round' as any,
+      lineJoin: 'round' as any,
     });
+  },
 
-    stage.on('mousemove.pen touchmove.pen', () => {
-      if (!this.isDrawing || !this.currentLine) return;
-      const pos = this.ctx.stageManager.getLayerPointer();
-      if (!pos) return;
-      this.currentPoints.push(pos.x, pos.y);
-      this.currentLine.points([...this.currentPoints]);
-      interactionLayer.draw();
-    });
+  midDraw(e) {
+    // Append the cursor position — shape is already parented to the interaction layer by toolRunner.
+    const shape = toolRunner.getCurrentShape() as Konva.Line;
+    if (!shape) return;
 
-    stage.on('mouseup.pen touchend.pen', () => {
-      if (!this.isDrawing || !this.currentLine) return;
-      this.isDrawing = false;
-      this.currentLine.destroy();
-      this.currentLine = null;
+    const points = (shape.points() as number[]).slice();
+    points.push(e.x, e.y);
+    shape.points(points);
+    shape.getLayer()?.batchDraw();
+  },
 
-      if (this.currentPoints.length < 4) { this.currentPoints = []; return; }
+  endDraw() {
+    const style = toolRunner.getActiveStyle() || {};
+    const shape = toolRunner.getCurrentShape() as Konva.Line;
+    if (!shape) return null;
 
-      const pdfPoints = konvaPointsToPdf(this.currentPoints, this.ctx.getPageHeightPts());
-      const markup: PenMarkup = {
-        id: generateId(),
-        type: 'pen',
-        pageIndex: this.ctx.getPageIndex(),
-        style: { ...this.ctx.getStyle() },
-        points: pdfPoints,
-      };
-      this.ctx.onMarkupAdd(markup);
-      this.currentPoints = [];
-    });
+    const points = (shape.points() as number[]).slice();
+    // Sub-threshold drag (bare click, or a degenerate stroke): discard.
+    // The framework destroys the preview in handleMouseUp's null branch.
+    if (points.length < MIN_COMMIT_POINTS) return null;
+
+    const pageHeightPts = toolRunner.getPageHeightPts();
+    if (!pageHeightPts) return null;
+
+    // Konva space → PDF space (Y-flip around page height). Flat array in, flat array out —
+    // PenMarkup.points is the same shape stage.ts reads back via pdfPointsToKonva.
+    const pdfPoints = konvaPointsToPdf(points, pageHeightPts);
+
+    return {
+      id: generateId(),
+      type: 'pen',
+      pageIndex: toolRunner.getPageIndex(),
+      style: { ...(style ?? {}) },
+      points: pdfPoints,
+    } as any;
   }
+};
 
-  deactivate(): void {
-    const { stage } = this.ctx.stageManager;
-    stage.off('mousedown.pen touchstart.pen');
-    stage.off('mousemove.pen touchmove.pen');
-    stage.off('mouseup.pen touchend.pen');
-    stage.container().style.cursor = 'default';
-    if (this.currentLine) { this.currentLine.destroy(); this.currentLine = null; }
-    this.isDrawing = false;
-  }
-}
+export const penTool: ToolProtocol = {
+  id: 'pen',
+  name: 'Freehand Pen',
+  key: 'p', // Keyboard shortcut hint (main.ts toolKeys already maps p → pen)
+  draw: penDraw,
+};

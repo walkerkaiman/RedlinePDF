@@ -28,6 +28,7 @@ import { toolRunner } from './tools/toolRunner';
 
 // Protocol objects — fully converted so far. Others stay as classes until migrated.
 import { lineTool as lineToolProtocol } from './tools/lineTool.ts';
+import { penTool } from './tools/penTool.ts';
 import { arrowTool } from './tools/arrowTool.ts';
 import { ellipseTool } from './tools/ellipseTool.ts';
 import { polygonAreaTool } from './tools/polygonAreaTool.ts';
@@ -38,6 +39,7 @@ import { panTool } from './tools/panTool.ts';
 
 const toolProtocols: Record<string, any> = {
   'line': lineToolProtocol,
+  'pen': penTool,
   'arrow': arrowTool,
   'ellipse': ellipseTool,
   'polygon-area': polygonAreaTool,
