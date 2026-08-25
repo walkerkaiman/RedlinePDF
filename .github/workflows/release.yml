@@ -85,8 +85,10 @@ jobs:
           cache: 'npm'
 
       # Keep the shipped version aligned with this tag (deb filename + in-app __APP_VERSION__).
-      # Plain variable — no bash-isms, so it works on Windows PowerShell too. Script strips a leading 'v'.
+      # Force bash so "$GITHUB_REF_NAME" expands on every runner — Windows' default PowerShell
+      # shell leaves the bash-style var as a literal, which fails the script's semver regex.
       - name: Sync app version to release tag
+        shell: bash
         run: node scripts/sync-release-version.mjs "$GITHUB_REF_NAME"
 
       - name: Install frontend dependencies
