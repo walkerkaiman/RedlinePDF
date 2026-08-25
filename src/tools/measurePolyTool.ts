@@ -6,6 +6,13 @@ import { formatLinear, formatArea } from '../measure/units.ts';
 import { generateId } from '../model/document.ts';
 import type { MeasurePolyMarkup, Point } from '../model/document.ts';
 
+/**
+ * Measure Polygon tool — CLICK-VERTEX (shares the polygon-area close behavior).
+ * CLICK-ONLY (no `draw` phase): each click drops a vertex + segment; closes when clicking near
+ * the first vertex or pressing Enter. Reads scale via toolRunner.getScale() — REQUIRES a
+ * calibrated page, otherwise main.ts redirects the tool to Set Scale before any click lands.
+ * Module state (`vertices[]`, `lines`, `closingLine`, label nodes) resets in clearPreview().
+ */
 interface Vtx { kx: number; ky: number; dot: Konva.Circle; }
 let vertices: Vtx[] = [];
 let lines: Konva.Line[] = [];

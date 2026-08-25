@@ -6,6 +6,14 @@ import { formatLinear } from '../measure/units.ts';
 import { generateId } from '../model/document.ts';
 import type { MeasureLinearMarkup } from '../model/document.ts';
 
+/**
+ * Measure Linear tool — DRAG tool (has a `draw` phase).
+ * Drag from point A to point B; the live label shows the calibrated distance. `endDraw()` reads
+ * positions from the module closure (`startPos`/`lastPos`), NOT from getRelativePointerPosition()
+ * at mouseup (which can be null), then commits a measure-linear Markup in PDF space.
+ * Requires a calibrated scale — selecting this tool on an uncalibrated page auto-redirects to
+ * Set Scale (see main.ts). 4-pt minimum length discards accidental clicks.
+ */
 // Module-level drag state — mirrors the ellipse/box pattern (draw phase receives no
 // extra args per signature, so intermediate values are carried in closure).
 let startPos: { x: number; y: number } | null = null;

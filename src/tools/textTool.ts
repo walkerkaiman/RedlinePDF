@@ -3,6 +3,15 @@ import { toolRunner } from './toolRunner';
 import { generateId } from '../model/document.ts';
 import { konvaToPdf } from '../geometry/transform.ts';
 
+/**
+ * Text tool — CLICK-ONLY by design.
+ * Intentionally has NO `draw` phase: a click opens an HTML textarea overlay; the markup
+ * is committed when the user finishes (Shift+Enter / Esc / blur). A `draw` phase here would
+ * swallow the click and make the tool appear dead. The editor overlay is a DOM <textarea>
+ * (not a Konva node) positioned over the canvas; `finish()` converts its screen rect to PDF
+ * space before committing. The `done` flag + detaching the blur listener before removing the
+ * node prevents a re-entrant NotFoundError during teardown.
+ */
 let editor: HTMLTextAreaElement | null = null;
 let mirrorSpan: HTMLSpanElement | null = null;
 

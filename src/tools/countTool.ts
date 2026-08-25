@@ -1,3 +1,8 @@
+/**
+ * Count tool — CLICK-ONLY by design (NO `draw` phase; a draw phase would swallow the click).
+ * On click it seeds a default category if none is active (so the tool doesn't silently no-op),
+ * then stamps a count markup at the Konva-space point converted to PDF space before dispatch.
+ */
 import type { ToolProtocol } from './toolProtocol';
 import { toolRunner } from './toolRunner';
 import { konvaToPdf } from '../geometry/transform';

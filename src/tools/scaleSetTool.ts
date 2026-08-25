@@ -7,6 +7,14 @@ import { appState } from '../state/appState.ts';
 import { showModal } from '../ui/modal.ts';
 import type { LinearUnit } from '../model/document.ts';
 
+/**
+ * Set Scale tool — CLICK-ONLY, two-point calibration.
+ * Click 1 drops a dot + starts a rubber-band line; click 2 finalizes and opens the calibration
+ * modal (set the real-world distance + unit). On confirm it emits `scale-set`, which main.ts
+ * handles: the scale is stored per-page and mirrored into appState.state.scale so the measure
+ * tools can read it. If a measure tool was pending, main.ts auto-switches back to it.
+ * Module state (`phase`, `point1`, preview nodes) is reset in clearPreview().
+ */
 // Click-state lives in module scope (ToolProtocol objects are stateless by design).
 type ScalePhase = 'idle' | 'awaiting-second-point';
 let phase: ScalePhase = 'idle';

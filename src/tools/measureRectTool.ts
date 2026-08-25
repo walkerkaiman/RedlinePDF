@@ -6,6 +6,13 @@ import { formatLinear, formatArea } from '../measure/units.ts';
 import { generateId } from '../model/document.ts';
 import type { MeasureRectMarkup } from '../model/document.ts';
 
+/**
+ * Measure Rectangle tool — DRAG tool (has a `draw` phase).
+ * Drag a box; the live label shows W / H / Area in the calibrated unit. `endDraw()` reads
+ * `startPos`/`lastPos` from the module closure and commits a measure-rect Markup in PDF space.
+ * Requires a calibrated scale — selecting this tool on an uncalibrated page auto-redirects to
+ * Set Scale (see main.ts). Sub-4pt boxes are discarded as accidental clicks.
+ */
 let startPos: { x: number; y: number } | null = null;
 let lastPos: { x: number; y: number } | null = null;
 let previewRect: Konva.Rect | null = null;

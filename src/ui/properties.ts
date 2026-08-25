@@ -448,6 +448,18 @@ function updateMeasureStatus(): void {
   el.textContent = `Page ${page + 1} scale: ${appState.state.hasPdf ? 'use Set Scale tool to calibrate' : 'no document'}`;
 }
 
+/**
+ * createSliderRow — the properties-panel slider.
+ *
+ * INTENTIONAL TWO-HANDLER SPLIT (do not merge):
+ *  - `input`  → applyLabel(): cheap, synchronous label/thumb update ONLY. Runs on every drag
+ *               frame so the value reads smoothly while dragging.
+ *  - `change` → applyValue(): the REAL commit. Calls onChange() which re-renders the panel and
+ *               pushes an undo snapshot. `change` fires once on mouseup / keyboard commit.
+ * Committing onChange() on every `input` frame (the previous bug) made dragging stutter because
+ * each frame triggered a full re-render + undo snapshot. Keep label work on `input`, commit on
+ * `change`. Double-clicking the value opens a typed numeric input that also commits via applyValue().
+ */
 function createSliderRow(
   label: string,
   value: number,

@@ -1322,7 +1322,10 @@ function setupStateListeners(): void {
       pendingMeasureTool = null;
     }
 
-    // If switching to a measure tool without calibrated scale, redirect to Set Scale first
+    // If switching to a measure tool without calibrated scale, redirect to Set Scale first.
+    // DO NOT "fix" this by removing the redirect — it is INTENTIONAL. Measure tools read the
+    // page scale (toolRunner.getScale()); without calibration they cannot compute real distances.
+    // We stash the intended tool and auto-switch back after calibration (see the 'scale-set' handler).
     if (MEASURE_TOOLS.includes(newTool)) {
       const page = currentPage();
       if (!page || !page.scale.calibrated) {
@@ -1374,6 +1377,9 @@ function setupStateListeners(): void {
   appState.on('scale-set', (data) => {
     const { pageIndex, scale } = data as { pageIndex: number; scale: import('./model/document.ts').PageScale };
     ensurePage(pageIndex).scale = scale;
+    // Mirror the scale into appState.state.scale so measure tools can read it via
+    // toolRunner.getScale() without re-deriving it from the page. This is the single source
+    // the measure tools consult; keep them in sync.
     appState.update({ scale: { ...scale } }); // mirror so measure tools can read it
     recalculateMeasureLabels();
     if (!pendingMeasureTool) rebuildMarkupLayer(); // recalculate already rebuilds if changed

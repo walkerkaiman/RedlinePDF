@@ -5,6 +5,15 @@ import { konvaToPdf } from '../geometry/transform.ts';
 import { generateId } from '../model/document.ts';
 import type { Markup } from '../model/document.ts';
 
+/**
+ * Polygon Area tool — CLICK-VERTEX mode (NOT freehand drag).
+ * Each click drops a shared vertex and extends a live polyline. The polygon closes when the
+ * user clicks near the FIRST vertex (the "lines that share vertices" behavior) or presses
+ * Enter; Esc cancels. This is deliberate: a continuous-drag `draw` phase made it behave like
+ * the pen tool, which was the reported bug. Konva `dblclick` is unreliable under synthetic
+ * (Playwright) events, so first-vertex-click is the primary close gesture.
+ * Module state (`vertices[]`, `liveLine`) must be reset in clearPreview()/deactivate().
+ */
 // Click-state (ToolProtocol objects are stateless by design).
 interface Vtx { kx: number; ky: number; dot: Konva.Circle; }
 let vertices: Vtx[] = [];

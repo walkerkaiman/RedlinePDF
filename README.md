@@ -144,6 +144,94 @@ Per-page markup snapshots (`JSON.stringify`) pushed onto an undo stack before ea
 
 ---
 
+## Developer Guide (for contributors & coding agents)
+
+This section explains *intended behavior* and the non-obvious design rules so a maintainer can diagnose a misbehaving tool without reading every file.
+
+### 1. Tools are `ToolProtocol` objects, dispatched by `ToolRunner`
+
+Every tool is a plain object (`src/tools/<name>Tool.ts`) conforming to `ToolProtocol`
+(`src/tools/toolProtocol.ts`). `ToolRunner` (`src/tools/toolRunner.ts`) binds **one**
+set of stage listeners and dispatches to the active protocol. To make a tool available
+it MUST be (a) imported and (b) registered in the `toolProtocols` map in `main.ts`
+(~line 55). A tool that is missing from that map is silently inert — this is the #1
+cause of a "tool does nothing" bug.
+
+**Dispatch rule (in `ToolRunner.handleMouseDown`):**
+- If the protocol has a `draw` phase → `mousedown` starts a drag:
+  `startDraw(pos)` → (on `mousemove`) `midDraw(pos)` → (on `mouseup`) `endDraw()` →
+  the returned `Markup` is committed via `appState.mutate('ADD_MARKUP', …)`.
+- Else if it has `onClick` → `mousedown` calls `onClick(pos)` **immediately** (no drag).
+- Having BOTH is allowed (drag wins); having NEITHER means the tool does nothing on canvas.
+
+**CRITICAL — click-only tools must NOT have a `draw` phase.** `endDraw()` is only called
+on mouseup, so a no-op `draw` phase swallows the click and the tool appears unresponsive
+(the classic "text tool doesn't respond" symptom). `text`, `count`, `scale-set`, and
+`measure-poly` are intentionally `onClick`-only. See also `onDblClick` / `onKey` (used by
+polygon tools to close on Enter/Escape) and `deactivate()` (always clean up preview nodes).
+
+### 2. ToolProtocol objects are stateless — carry state in module scope
+
+Because they're singletons, you cannot store per-drag state on the object. Drag/click
+state (e.g. `startPos`, `vertices[]`, `phase`) lives in **module-level `let` variables**
+at the top of the tool file. Always reset it in `clearPreview()` / `deactivate()` so a
+half-finished gesture doesn't leak into the next use.
+
+### 3. Coordinates: Konva is screen/Y-down, the model is PDF/Y-up
+
+All markups are stored in **PDF user space** (1 pt = 1/72", bottom-left origin). Konva
+uses top-left origin. Every tool MUST convert the Konva pointer position to PDF space with
+`konvaToPdf(kx, ky, pageHeightPts)` before committing via `ADD_MARKUP`, otherwise the
+markup renders flipped/misplaced. `toolRunner.getPageHeightPts()` and
+`toolRunner.getStageManager().markupLayer.getRelativePointerPosition()` supply the inputs.
+(Note: `endDraw()` receives no event args by design — read positions from your module
+closure / `toolRunner.getCurrentShape()` instead of `getRelativePointerPosition()` at
+mouseup, which can be null.)
+
+### 4. The Measurement Calibration Gate (easy to trip over)
+
+Measuring requires a calibrated page scale. The gate lives in `main.ts` `setupStateListeners`
+(~line 1326): **selecting a measure tool on a page that is not yet calibrated auto-redirects
+to Set Scale** and stashes the intended tool in `pendingMeasureTool`. After the user picks two
+points and confirms the calibration modal, the `scale-set` handler (~line 1374) mirrors the
+scale into `appState.state.scale` and then auto-switches back to the original measure tool.
+So a measure tool "doing nothing" is often just the calibration redirect — set the scale first
+(Set Scale shortcuts: click two points → enter the real distance → Apply). Each page stores
+its own independent scale.
+
+### 5. Sliders: label updates live, commit on release
+
+In `properties.ts` `createSliderRow` the value is split into two handlers on purpose:
+- `input` → `applyLabel()` — cheap, synchronous label/thumb update only (runs every drag frame).
+- `change` → `applyValue()` — the real commit: calls `onChange()` which re-renders the panel
+  and pushes an undo snapshot.
+
+Do NOT merge these. Committing on every `input` frame (the old bug) makes dragging stutter
+because each frame triggers a full re-render + undo snapshot. Keep label work on `input`,
+commit work on `change` (mouseup / keyboard). Double-clicking a value lets you type a number
+and calls `applyValue()` on commit.
+
+### 6. The `__REDLINE_DEBUG` seam (for tests & diagnosis)
+
+`main.ts` exposes a read-only `window.__REDLINE_DEBUG` object so specs (and you) can assert
+app behavior without pixel inspection: `activeTool`, `markups` (count; `<0` = loading
+sentinel), `markupTypes`, `pageIndex`, `selectedIds`, `selectedMarkup`, `renderedNodeIds`,
+`activeCountCategoryId`, `countSymbolSize`. Use these to confirm a tool actually committed a
+markup rather than guessing from the canvas.
+
+### 7. Diagnosing a "broken" tool — checklist
+
+1. Is it registered in `toolProtocols` (main.ts ~55)? Missing → inert.
+2. `draw` or `onClick`? Click-only tools must have NO `draw` phase.
+3. Is the Konva pointer position converted with `konvaToPdf(...)` before `ADD_MARKUP`?
+4. Is a measure tool being used on an uncalibrated page? → it redirects to Set Scale by design.
+5. Does `endDraw()` / `onClick` return a `Markup` with a `type`, `pageIndex`, and generated `id`?
+   `ToolRunner` only commits when the returned markup has an `id`.
+6. Did you reset module state in `clearPreview()`/`deactivate()`? A leftover preview shape or
+   stale `vertices[]` will ghost or block the next gesture.
+
+---
+
 ## Tech Stack
 - **Vite + TypeScript** — no framework, 100% client-side
 - **pdfjs-dist 4.x** — PDF rendering
