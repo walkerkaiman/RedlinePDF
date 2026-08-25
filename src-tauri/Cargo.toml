@@ -1,6 +1,6 @@
 [package]
 name = "redlinepdf"
-version = "0.2.7"
+version = "0.2.8"
 description = "RedlinePDF - Construction Markup Tool"
 authors = ["RedlinePDF"]
 edition = "2021"
