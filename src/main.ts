@@ -721,6 +721,7 @@ function buildToolContext(): ToolContext {
   get activeTool(): string | null { return appState.state.activeTool; },
   get markups(): number { const p = currentPage(); return p ? p.markups.length : -1; },
   get markupTypes(): string[] { const p = currentPage(); return p ? (p.markups.map(m => m.type) as string[]) : []; },
+  get selectedIds(): string[] { return appState.state.selectedMarkupIds; },
 };
 
 function activateCurrentTool(): void {
