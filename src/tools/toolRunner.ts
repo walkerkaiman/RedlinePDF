@@ -179,6 +179,16 @@ export class ToolRunner {
     if (result && result.id) {
       console.log(`[ToolRunner] Adding markup: ${result.type} id=${result.id}`);
       
+      // Destroy the preview shape — the committed markup renders its own node via the
+      // ADD_MARKUP pipeline, so leaving the preview behind would leave a ghost overlay.
+      // (Some tools like boxTool destroy their own inside endDraw; this is the framework
+      // guarantee for the rest, e.g. ellipse.)
+      if (this._previewShape) {
+        this._previewShape.destroy();
+        this._previewShape = null;
+        this._stageManager?.stage?.batchDraw();
+      }
+
       // Dispatch ADD_MARKUP mutation through pipeline (triggers undo tracking + canvas sync).
       this._dispatchAdd(result as any);
     } else {
