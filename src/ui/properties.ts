@@ -470,18 +470,30 @@ function createSliderRow(
   const rangeInput = row.querySelector<HTMLInputElement>('input[type="range"]')!;
   const display = row.querySelector<HTMLSpanElement>('.slider-value')!;
 
-  const applyValue = (raw: number) => {
-    // Percentages cap at 0–100; everything else only clamps at the minimum.
+  const applyLabel = (raw: number) => {
+    // Cheap, synchronous label + thumb update — safe to run on every drag frame.
     const clamped = isPercent
       ? Math.max(0, Math.min(100, raw))
       : Math.max(min, raw);
     display.textContent = `${clamped}${unit}`;
-    // Keep slider thumb in sync (visually clamped to its own [min, max]).
+    rangeInput.value = String(Math.min(clamped, max));
+  };
+
+  const applyValue = (raw: number) => {
+    // Full commit: clamps, updates label, AND pushes the value into appState
+    // (triggers re-render + undo snapshot — only do this on `change`, i.e. release).
+    const clamped = isPercent
+      ? Math.max(0, Math.min(100, raw))
+      : Math.max(min, raw);
+    display.textContent = `${clamped}${unit}`;
     rangeInput.value = String(Math.min(clamped, max));
     onChange(clamped);
   };
 
-  rangeInput.addEventListener('input', () => applyValue(parseFloat(rangeInput.value)));
+  // Smooth drag: update the label live on every frame, but only COMMIT (re-render +
+  // undo-snapshot) when the user releases the thumb / commits via keyboard (`change`).
+  rangeInput.addEventListener('input', () => applyLabel(parseFloat(rangeInput.value)));
+  rangeInput.addEventListener('change', () => applyValue(parseFloat(rangeInput.value)));
 
   // ── Double-click to type a value manually ───────────────────────────────
   display.addEventListener('dblclick', () => {

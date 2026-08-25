@@ -1,6 +1,7 @@
-import type { CountSymbol, LinearUnit, Markup, MarkupStyle, MarkupType, UnitsSettings } from '../model/document.ts';
+import type { CountSymbol, LinearUnit, Markup, MarkupStyle, MarkupType, PageScale, UnitsSettings } from '../model/document.ts';
 import type { MutationKind } from './mutationTypes.ts';
 import { DEFAULT_FILL_STYLE, DEFAULT_STROKE_STYLE, DEFAULT_TEXT_STYLE, DEFAULT_UNITS } from '../model/document.ts';
+import { UNCALIBRATED_SCALE } from '../measure/scale.ts';
 
 export type ToolType =
   | 'select' | 'pan'
@@ -22,6 +23,8 @@ export interface AppStateData {
   totalPages: number;
   zoom: number;
   units: UnitsSettings;
+  /** Calibrated page scale (mirrored from the active page so tools can read it without page lookup). */
+  scale: PageScale;
   activeStyle: MarkupStyle;
   /** Primary selected ID (single-select only; null when 0 or 2+ selected) */
   selectedMarkupId: string | null;
@@ -66,6 +69,7 @@ class AppStateManager {
     totalPages: 0,
     zoom: 1.0,
     units: { ...DEFAULT_UNITS },
+    scale: { ...UNCALIBRATED_SCALE },
     activeStyle: {
       ...DEFAULT_STROKE_STYLE,
       ...DEFAULT_FILL_STYLE,

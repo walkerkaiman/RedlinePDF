@@ -20,6 +20,8 @@ export interface ToolProtocol {
     startPos?: { x: number; y: number } | null;
   };
   onClick?(e: { x: number; y: number }): void;
+  onDblClick?(e: { x: number; y: number }): void;
+  onKey?(e: KeyboardEvent): void;
   onDragStart?(e: { x: number; y: number }): void;
   onDragMove?(e: { x: number; y: number }): void;
   onDragEnd?(): void;

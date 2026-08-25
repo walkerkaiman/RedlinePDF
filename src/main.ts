@@ -35,6 +35,10 @@ import { boxTool } from './tools/boxTool.ts';
 import { textTool } from './tools/textTool.ts';
 import { countTool } from './tools/countTool.ts';
 import { panTool } from './tools/panTool.ts';
+import { scaleSetTool } from './tools/scaleSetTool.ts';
+import { measureLinearTool } from './tools/measureLinearTool.ts';
+import { measureRectTool } from './tools/measureRectTool.ts';
+import { measurePolyTool } from './tools/measurePolyTool.ts';
 
 const toolProtocols: Record<string, any> = {
   'line': lineToolProtocol,
@@ -48,6 +52,10 @@ const toolProtocols: Record<string, any> = {
   'text': textTool,
   'count': countTool,
   'pan': panTool,
+  'scale-set': scaleSetTool,
+  'measure-linear': measureLinearTool,
+  'measure-rect': measureRectTool,
+  'measure-poly': measurePolyTool,
 };
 
 // ── App state ─────────────────────────────────────────────────────────────────
@@ -723,6 +731,7 @@ function buildToolContext(): ToolContext {
   get markups(): number { const p = currentPage(); return p ? p.markups.length : -1; },
   get markupTypes(): string[] { const p = currentPage(); return p ? (p.markups.map(m => m.type) as string[]) : []; },
   get pageIndex(): number { return appState.state.activePageIndex; },
+  get activeCountCategoryId(): string | null { return appState.state.activeCountCategoryId; },
   /** List ids of actual Konva markup nodes on the markup layer (excludes transformer). */
   get renderedNodeIds(): string[] {
     const sm = stageManager;
@@ -733,6 +742,15 @@ function buildToolContext(): ToolContext {
     }).map((n: Konva.Node) => n.id());
   },
   get selectedIds(): string[] { return appState.state.selectedMarkupIds; },
+  /** Count symbol size (driven by the always-visible Size slider in the count tool panel). */
+  get countSymbolSize(): number { return appState.state.countSymbolSize; },
+  /** First currently-selected markup (for asserting style commits from the properties panel). */
+  get selectedMarkup(): import('./model/document.ts').Markup | null {
+    const ids = appState.state.selectedMarkupIds;
+    if (!ids.length) return null;
+    const p = currentPage();
+    return p ? (p.markups.find(m => m.id === ids[0]) ?? null) : null;
+  },
 };
 
 function activateCurrentTool(): void {
@@ -1356,6 +1374,7 @@ function setupStateListeners(): void {
   appState.on('scale-set', (data) => {
     const { pageIndex, scale } = data as { pageIndex: number; scale: import('./model/document.ts').PageScale };
     ensurePage(pageIndex).scale = scale;
+    appState.update({ scale: { ...scale } }); // mirror so measure tools can read it
     recalculateMeasureLabels();
     if (!pendingMeasureTool) rebuildMarkupLayer(); // recalculate already rebuilds if changed
     scheduleAutosave();

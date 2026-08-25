@@ -28,8 +28,9 @@ export class ToolRunner {
   private _previewShape: Konva.Shape | Konva.Group | null = null;
 
   // Stored handler references for proper unbinding later.
-  private _mousemoveHandler?: (e: Konva.KonvaEventObject<MouseEvent>) => void;
-  private _mouseupHandler?: () => void;
+  private _mousemoveHandler: ((e: Konva.KonvaEventObject<MouseEvent>) => void) | undefined;
+  private _mouseupHandler: (() => void) | undefined;
+  private _keyHandler: ((ev: KeyboardEvent) => void) | null = null;
 
   constructor() {}
 
@@ -50,11 +51,22 @@ export class ToolRunner {
     if (!this._stageManager?.stage) return;
 
     const stage = this._stageManager.stage;
-    
+
     // Bind mousedown — start the tool or onClick handler.
     stage.on('mousedown', (e: Konva.KonvaEventObject<MouseEvent>) => {
       this.handleMouseDown(e);
     });
+
+    // Bind dblclick + keydown for multi-click tools (polygon, scale-set close, etc.).
+    stage.on('dblclick', (e: Konva.KonvaEventObject<MouseEvent>) => {
+      const pos = this._eventPos(e);
+      if (pos && this._activeProtocol?.onDblClick) this._activeProtocol.onDblClick(pos);
+    });
+    const keyHandler = (ev: KeyboardEvent) => {
+      if (this._activeProtocol?.onKey) this._activeProtocol.onKey(ev);
+    };
+    window.addEventListener('keydown', keyHandler);
+    this._keyHandler = keyHandler;
 
     console.log(`[ToolRunner] Bound mousedown for ${protocol.id}.`);
   }
@@ -88,6 +100,11 @@ export class ToolRunner {
   
   getPageHeightPts(): number {
     return this._stageManager?.pageHeightPts ?? 792; // default A4 height in points
+  }
+
+  /** Current calibrated page scale (mirrored into appState by the scale-set handler). */
+  getScale(): import('../model/document.ts').PageScale {
+    return appState.state.scale;
   }
 
   getPageIndex(): number {
@@ -255,6 +272,11 @@ export class ToolRunner {
     const stage = this._stageManager?.stage;
     if (stage) {
       stage.off('mousedown');
+      stage.off('dblclick');
+    }
+    if (this._keyHandler) {
+      window.removeEventListener('keydown', this._keyHandler);
+      this._keyHandler = null;
     }
 
     this._activeProtocol = null;

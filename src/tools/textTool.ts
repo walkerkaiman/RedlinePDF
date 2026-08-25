@@ -15,36 +15,6 @@ function hexToRgb(hex: string): {r: number, g: number, b: number} {
   } : {r: 0, g: 0, b: 0};
 }
 
-const textDrawPhase = {
-  startDraw() {}, // No shape drawing for text - uses click handler
-  midDraw() {},
-  endDraw() { return null; },
-  
-  onClick(e: { x: number, y: number }) {
-    const stageManager = toolRunner.getStageManager();
-    if (!stageManager?.stage || editor) return;
-    
-    // Create new text box at click position
-    openNewEditor(e.x, e.y);
-  },
-
-  activate() {
-    const stageManager = toolRunner.getStageManager();
-    if (stageManager?.stage) {
-      stageManager.stage.container().style.cursor = 'text';
-    }
-  },
-
-  deactivate() {
-    destroyEditor();
-    
-    const stageManager = toolRunner.getStageManager();
-    if (stageManager?.stage) {
-      stageManager.stage.container().style.cursor = 'default';
-    }
-  },
-};
-
 function openNewEditor(kx: number, ky: number): void {
   const stageManager = toolRunner.getStageManager();
   if (!stageManager?.stage) return;
@@ -67,15 +37,19 @@ function openNewEditor(kx: number, ky: number): void {
     borderColor: style?.strokeColor || '#666',
   });
 
+  let done = false;
   const finish = (e?: Event) => {
-    if (!editor) return;
-    
+    if (done || !editor) return;
+    done = true;
+    // Detach the blur listener FIRST so removing the node never re-enters finish.
+    editor.removeEventListener('blur', finish);
+
     const text = editor.value.trim();
     const screenW = editor.offsetWidth;
     const screenH = editor.offsetHeight;
-    
+
     destroyEditor();
-    
+
     if (!text || !stageManager) return;
 
     // The model stores markup in PDF space (bottom-left origin, y-up), but kx/ky are
@@ -98,10 +72,10 @@ function openNewEditor(kx: number, ky: number): void {
   };
 
   editor.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') destroyEditor();
-    if (e.key === 'Enter' && e.shiftKey) finish(e);
+    if (e.key === 'Escape') { e.preventDefault(); finish(); }
+    if (e.key === 'Enter' && e.shiftKey) { e.preventDefault(); finish(); }
   });
-  
+
   editor.addEventListener('blur', finish);
 }
 
@@ -134,19 +108,30 @@ function createEditor(opts: any): HTMLTextAreaElement {
 }
 
 function destroyEditor() {
-  if (editor) {
+  // Idempotent: only remove nodes that are still attached to the DOM, so a
+  // blur-triggered re-entry can't call remove() on an already-detached node.
+  if (editor && editor.isConnected) {
     editor.remove();
-    editor = null;
   }
-  if (mirrorSpan) {
+  editor = null;
+  if (mirrorSpan && mirrorSpan.isConnected) {
     mirrorSpan.remove();
-    mirrorSpan = null;
   }
+  mirrorSpan = null;
 }
 
 export const textTool: ToolProtocol = {
   id: 'text',
   name: 'Text',
   key: 't',
-  draw: textDrawPhase,
+  onClick: (e: { x: number; y: number }) => {
+    const stageManager = toolRunner.getStageManager();
+    if (!stageManager?.stage || editor) return;
+    openNewEditor(e.x, e.y);
+  },
+  deactivate() {
+    destroyEditor();
+    const stageManager = toolRunner.getStageManager();
+    if (stageManager?.stage) stageManager.stage.container().style.cursor = 'default';
+  },
 };
