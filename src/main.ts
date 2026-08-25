@@ -722,6 +722,16 @@ function buildToolContext(): ToolContext {
   get activeTool(): string | null { return appState.state.activeTool; },
   get markups(): number { const p = currentPage(); return p ? p.markups.length : -1; },
   get markupTypes(): string[] { const p = currentPage(); return p ? (p.markups.map(m => m.type) as string[]) : []; },
+  get pageIndex(): number { return appState.state.activePageIndex; },
+  /** List ids of actual Konva markup nodes on the markup layer (excludes transformer). */
+  get renderedNodeIds(): string[] {
+    const sm = stageManager;
+    if (!sm) return [];
+    return sm.markupLayer.getChildren((n: Konva.Node) => {
+      const id = n.id();
+      return !!id && id !== 'transformer' && id !== 'select-transformer';
+    }).map((n: Konva.Node) => n.id());
+  },
   get selectedIds(): string[] { return appState.state.selectedMarkupIds; },
 };
 
