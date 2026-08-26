@@ -775,42 +775,46 @@ export function createStage(containerId: string, width: number, height: number, 
         }
         case 'polygon-area': {
           const m = markup as PolygonAreaMarkup;
-          if (node instanceof Konva.Group && node.children.length >= 2) {
-            // Children: [0] transform-hitbox rect, [1] polygon-shape line.
-            const hitbox = node.children[0] as Konva.Rect;
-            const polyLine = node.children[1] as Konva.Line;
+          if (node instanceof Konva.Group) {
+            // Find children by name (not index) so a node rebuild that reorders
+            // children can never silently break the bake. If the hitbox/line are
+            // missing the node was built without them — fall back to translating
+            // the group so the move still registers instead of no-op'ing.
+            const hitbox = node.findOne<Konva.Rect>('.transform-hitbox') ?? null;
+            const polyLine = node.findOne<Konva.Line>('.polygon-shape') ?? null;
 
-            // Apply group transform to each point.
-            const raw = polyLine.points();
-            const baked: number[] = [];
-            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-            for (let i = 0; i < raw.length; i += 2) {
-              const bx = tx + raw[i] * sx;
-              const by = ty + raw[i + 1] * sy;
-              baked.push(bx, by);
-              if (bx < minX) minX = bx;
-              if (bx > maxX) maxX = bx;
-              if (by < minY) minY = by;
-              if (by > maxY) maxY = by;
+            if (polyLine) {
+              const raw = polyLine.points();
+              const baked: number[] = [];
+              let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+              for (let i = 0; i < raw.length; i += 2) {
+                const bx = tx + raw[i] * sx;
+                const by = ty + raw[i + 1] * sy;
+                baked.push(bx, by);
+                if (bx < minX) minX = bx;
+                if (bx > maxX) maxX = bx;
+                if (by < minY) minY = by;
+                if (by > maxY) maxY = by;
+              }
+
+              if (hitbox) {
+                hitbox.x(minX);
+                hitbox.y(minY);
+                hitbox.width(Math.abs(maxX - minX));
+                hitbox.height(Math.abs(maxY - minY));
+              }
+
+              const pdfCoords = konvaPointsToPdf(Array.from(baked), h);
+              m.points = Array.from({ length: baked.length / 2 }, (_, i) => ({
+                x: pdfCoords[i * 2],
+                y: pdfCoords[i * 2 + 1],
+              }));
+
+              polyLine.points(baked);
+            } else {
+              // No polygon-shape line: just translate the group's children.
+              node.getChildren().forEach(c => { c.x(c.x() + tx); c.y(c.y() + ty); });
             }
-
-            // Update hitbox rect dimensions so Konva's Transformer keeps
-            // handle positions correct even after negative-scale flips.
-            const bw = Math.abs(maxX - minX);
-            const bh = Math.abs(maxY - minY);
-            hitbox.x(minX);
-            hitbox.y(minY);
-            hitbox.width(bw);
-            hitbox.height(bh);
-
-            // Convert baked points back to PDF coords and update model.
-            const pdfCoords = konvaPointsToPdf(Array.from(baked), h);
-            m.points = Array.from({ length: baked.length / 2 }, (_, i) => ({
-              x: pdfCoords[i * 2],
-              y: pdfCoords[i * 2 + 1],
-            }));
-
-            polyLine.points(baked);
             node.x(0); node.y(0); node.scaleX(1); node.scaleY(1);
           }
           break;
