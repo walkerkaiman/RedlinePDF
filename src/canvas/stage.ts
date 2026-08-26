@@ -90,6 +90,11 @@ export function createCountSymbolShape(symbol: CountSymbol, color: string, size:
       g.add(new Konva.Line({ points: [0, -r, 0, r], stroke: color, strokeWidth: t, lineCap: 'round' }));
       break;
     }
+    default:
+      // Defensive: any unrecognized/legacy symbol (e.g. a stray Unicode bullet)
+      // falls back to a circle so the stamp always renders visibly instead of
+      // producing an empty, zero-size group.
+      g.add(new Konva.Circle({ radius: r, fill: color, stroke: '#fff', strokeWidth: 1.5 }));
   }
   return g;
 }
