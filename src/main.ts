@@ -39,6 +39,7 @@ import { scaleSetTool } from './tools/scaleSetTool.ts';
 import { measureLinearTool } from './tools/measureLinearTool.ts';
 import { measureRectTool } from './tools/measureRectTool.ts';
 import { measurePolyTool } from './tools/measurePolyTool.ts';
+import { selectTool } from './tools/selectTool.ts';
 
 const toolProtocols: Record<string, any> = {
   'line': lineToolProtocol,
@@ -56,6 +57,7 @@ const toolProtocols: Record<string, any> = {
   'measure-linear': measureLinearTool,
   'measure-rect': measureRectTool,
   'measure-poly': measurePolyTool,
+  'select': selectTool,
 };
 
 // ── App state ─────────────────────────────────────────────────────────────────
@@ -750,6 +752,28 @@ function buildToolContext(): ToolContext {
     if (!ids.length) return null;
     const p = currentPage();
     return p ? (p.markups.find(m => m.id === ids[0]) ?? null) : null;
+  },
+  /**
+   * On-screen bounding boxes of all rendered markup nodes, in real stage/screen pixel
+   * coordinates (the stage is scaled/offset to fit the page, so the rect must be run through
+   * the stage transform). e2e specs use this to click a markup at its actual rendered
+   * position. Returns [] if no markup is rendered.
+   */
+  get markupScreenRects(): { x: number; y: number; width: number; height: number }[] {
+    const sm = stageManager;
+    if (!sm) return [];
+    const ids = sm.markupLayer.getChildren((n: Konva.Node) => !!n.id() && n.id() !== 'transformer' && n.id() !== 'select-transformer').map((n: Konva.Node) => n.id());
+    const out: { x: number; y: number; width: number; height: number }[] = [];
+    const sx = sm.stage.scaleX(), sy = sm.stage.scaleY(), ox = sm.stage.x(), oy = sm.stage.y();
+    for (const id of ids) {
+      const node = sm.findNode(id);
+      if (!node) continue;
+      const r = node.getClientRect({ relativeTo: sm.stage });
+      // getClientRect(relativeTo: stage) is in stage-local coords; apply the stage transform
+      // to get true screen pixels (confirmed: stageScale≈0.70, x≈305, y≈40 for fit-to-page).
+      out.push({ x: ox + r.x * sx, y: oy + r.y * sy, width: r.width * sx, height: r.height * sy });
+    }
+    return out;
   },
 };
 

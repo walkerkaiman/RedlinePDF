@@ -219,6 +219,23 @@ sentinel), `markupTypes`, `pageIndex`, `selectedIds`, `selectedMarkup`, `rendere
 `activeCountCategoryId`, `countSymbolSize`. Use these to confirm a tool actually committed a
 markup rather than guessing from the canvas.
 
+> **Select-tool diagnosis (important):** The select tool (`src/tools/selectTool.ts`, registered
+> as `'select'` in `toolProtocols`) is `onClick`-only. On a canvas click it hit-tests the markup
+> under the pointer via `stage.getIntersection(pointerPos)` and calls `appState.setSelection(id)`
+> (Shift+click toggles into/out of the multi-selection; clicking empty canvas deselects). On any
+> selection it also draws a dashed highlight and attaches a `Konva.Transformer` so the markup can
+> be dragged (move) or resized/rotated; both emit `markup-transform`, which `main.ts` bakes back
+> into the PDF-space model.
+>
+> **The stage is scaled/offset to fit the PDF page** (e.g. `stageScale≈0.70, x≈305, y≈40`).
+> `getClientRect({ relativeTo: stage })` returns *stage-local* (unscaled) coords, NOT screen
+> pixels. To hit-test or click a markup at its real on-screen spot you must run the rect through
+> the stage transform: `screenX = stage.x() + rect.x * stage.scaleX()`. If a "select doesn't work"
+> bug appears, verify the click coordinates are screen pixels (use `stage.getPointerPosition()`),
+> not raw `getClientRect`/`getRelativePointerPosition` values. A markup that is `listening(true)`
+> but returns `null` from `getIntersection` at its own center almost always means the hit point
+> was supplied in the wrong coordinate space.
+
 ### 7. Diagnosing a "broken" tool — checklist
 
 1. Is it registered in `toolProtocols` (main.ts ~55)? Missing → inert.
