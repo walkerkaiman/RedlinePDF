@@ -316,21 +316,23 @@ export function createMarkupNode(markup: Markup, pageHeightPts: number): Konva.N
         // Invisible full-area hitbox so the ENTIRE polygon (not just its thin
         // dashed outline / faint fill) is selectable, and so Konva.Transformer
         // can compute resize handles. Mirrors the polygon-area pattern.
-        // fill is OPAQUE (not 'transparent') — on WebKitGTK the hit canvas skips
-        // transparent fills, which left the polygon unselectable on the desktop.
+        // Bulletproof hit area: draw nothing to the scene (sceneFunc no-op,
+        // invisible) but explicitly fill the hit canvas via hitFunc at full
+        // alpha. No opacity property, so no backend can blank the hit region.
         if (m.points.length >= 3) {
           group.add(new Konva.Rect({
             name: 'transform-hitbox',
             x: minX, y: minY,
             width: maxX - minX, height: maxY - minY,
             fill: '#ffffff',
-            opacity: 0,
+            sceneFunc: function () { /* intentionally empty: invisible in scene */ },
             hitFunc: function (ctx, shape) {
               ctx.beginPath();
               ctx.rect(0, 0, shape.width(), shape.height());
               ctx.closePath();
               ctx.fillStrokeShape(shape);
             },
+            listening: true,
           }));
         }
 
@@ -388,24 +390,28 @@ export function createMarkupNode(markup: Markup, pageHeightPts: number): Konva.N
 
         // Invisible bounding-box rect so Konva's Transformer can compute resize
         // handles (width/height).  Same approach that makes Box/Ellipse scalable.
-        // NOTE: fill must be OPAQUE (not 'transparent') — on WebKitGTK the hit
-        // canvas skips transparent fills, leaving the polygon with no interior hit
-        // area (only the hairline outline), which made it unselectable on the
-        // desktop. opacity:0 keeps it visually invisible while an explicit hitFunc
-        // guarantees the whole bounding box is a hit target on every engine.
+        //
+        // CRITICAL for the real desktop (Tauri/WebKitGTK, Cairo-backed canvas):
+        // a transparent or opacity:0 fill is SKIPPED on the hit canvas by some
+        // backends, leaving the polygon with NO interior hit area (only the
+        // hairline outline) -> unselectable.  The bulletproof fix is to draw
+        // NOTHING to the scene (sceneFunc no-op, so it's invisible) but
+        // EXPLICITLY fill the hit canvas via hitFunc at full alpha.  No opacity
+        // property is used, so no backend can blank the hit region.
         group.add(new Konva.Rect({
           name: 'transform-hitbox',
           x: minX, y: minY,
           width: maxX - minX,
           height: maxY - minY,
           fill: '#ffffff',
-          opacity: 0,
+          sceneFunc: function () { /* intentionally empty: invisible in scene */ },
           hitFunc: function (ctx, shape) {
             ctx.beginPath();
             ctx.rect(0, 0, shape.width(), shape.height());
             ctx.closePath();
             ctx.fillStrokeShape(shape);
           },
+          listening: true,
         }));
 
         group.add(new Konva.Line({
