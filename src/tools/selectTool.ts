@@ -99,8 +99,9 @@ function refreshSelectionVisual(): void {
     .filter((n): n is Konva.Node => !!n);
 
   for (const n of nodes) {
-    const b = n.getClientRect({ relativeTo: sm.interactionLayer });
+    const b = n.getClientRect({ relativeTo: sm.markupLayer });
     const r = new Konva.Rect({
+      name: 'select-highlight',
       x: b.x, y: b.y, width: b.width, height: b.height,
       stroke: '#0077cc', strokeWidth: 1.5, dash: [6, 4], listening: false,
     });
@@ -111,7 +112,7 @@ function refreshSelectionVisual(): void {
     n.draggable(true);
     n.off('.seldrag');
     n.on('dragmove.seldrag', () => {
-      const box = n.getClientRect({ relativeTo: sm.interactionLayer });
+      const box = n.getClientRect({ relativeTo: sm.markupLayer });
       r.setAttrs({ x: box.x, y: box.y, width: box.width, height: box.height });
     });
     n.on('dragend.seldrag', () => appState.emit('markup-transform', { id: n.id() }));
@@ -128,7 +129,7 @@ function refreshSelectionVisual(): void {
     sm.interactionLayer.add(transformer);
     transformer.on('transform', () => {
       for (const n of transformer!.nodes()) {
-        const box = n.getClientRect({ relativeTo: sm.interactionLayer });
+        const box = n.getClientRect({ relativeTo: sm.markupLayer });
         const hr = highlights.find((h) => Math.abs(h.x() - box.x) < 1 && Math.abs(h.y() - box.y) < 1);
         hr?.setAttrs({ x: box.x, y: box.y, width: box.width, height: box.height });
       }
@@ -154,7 +155,22 @@ export const selectTool: ToolProtocol = {
 
   onClick() {
     const sm = getSM();
-    if (!sm) return;
+    if (!sm?.stage) return;
+    const abs = sm.stage.getPointerPosition();
+    if (!abs) return;
+
+    // If the press is on the transformer (a resize/rotate handle) or one of its anchors,
+    // let the transformer handle the gesture — do NOT treat it as a selection click, or we
+    // would deselect and yank the transformer off mid-resize (Bug A: "can't scale elements").
+    const top = sm.stage.getIntersection(abs);
+    if (top) {
+      let p: Konva.Node | null = top;
+      while (p) {
+        if (p.id() === 'select-transformer' || (p.name && p.name() === 'select-transformer') || p.className === 'Transformer') return;
+        p = p.getParent();
+      }
+    }
+
     const node = hitTest();
     const ids = appState.state.selectedMarkupIds;
 

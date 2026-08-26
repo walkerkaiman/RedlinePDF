@@ -759,19 +759,37 @@ function buildToolContext(): ToolContext {
    * the stage transform). e2e specs use this to click a markup at its actual rendered
    * position. Returns [] if no markup is rendered.
    */
-  get markupScreenRects(): { x: number; y: number; width: number; height: number }[] {
+  get markupScreenRects(): { type: string; x: number; y: number; width: number; height: number }[] {
     const sm = stageManager;
     if (!sm) return [];
     const ids = sm.markupLayer.getChildren((n: Konva.Node) => !!n.id() && n.id() !== 'transformer' && n.id() !== 'select-transformer').map((n: Konva.Node) => n.id());
-    const out: { x: number; y: number; width: number; height: number }[] = [];
+    const out: { type: string; x: number; y: number; width: number; height: number }[] = [];
     const sx = sm.stage.scaleX(), sy = sm.stage.scaleY(), ox = sm.stage.x(), oy = sm.stage.y();
+    const p = currentPage();
     for (const id of ids) {
       const node = sm.findNode(id);
       if (!node) continue;
+      const type = p?.markups.find(m => m.id === id)?.type ?? 'unknown';
       const r = node.getClientRect({ relativeTo: sm.stage });
-      // getClientRect(relativeTo: stage) is in stage-local coords; apply the stage transform
-      // to get true screen pixels (confirmed: stageScale≈0.70, x≈305, y≈40 for fit-to-page).
-      out.push({ x: ox + r.x * sx, y: oy + r.y * sy, width: r.width * sx, height: r.height * sy });
+      out.push({ type, x: ox + r.x * sx, y: oy + r.y * sy, width: r.width * sx, height: r.height * sy });
+    }
+    return out;
+  },
+  /**
+   * Screen-space rects of the select-tool highlight overlays (the blue dashed boxes drawn on
+   * interactionLayer). Used by e2e to assert the highlight lands on the markup (Bug B: a
+   * highlight offset to the side of the selected element indicates a coordinate-space bug).
+   */
+  get selectOverlayRects(): { x: number; y: number; width: number; height: number }[] {
+    const sm = stageManager;
+    if (!sm) return [];
+    const sx = sm.stage.scaleX(), sy = sm.stage.scaleY(), ox = sm.stage.x(), oy = sm.stage.y();
+    const out: { x: number; y: number; width: number; height: number }[] = [];
+    for (const n of sm.interactionLayer.getChildren()) {
+      if (n.name && n.name() === 'select-highlight') {
+        const r = n.getClientRect({ relativeTo: sm.stage });
+        out.push({ x: ox + r.x * sx, y: oy + r.y * sy, width: r.width * sx, height: r.height * sy });
+      }
     }
     return out;
   },
