@@ -316,12 +316,21 @@ export function createMarkupNode(markup: Markup, pageHeightPts: number): Konva.N
         // Invisible full-area hitbox so the ENTIRE polygon (not just its thin
         // dashed outline / faint fill) is selectable, and so Konva.Transformer
         // can compute resize handles. Mirrors the polygon-area pattern.
+        // fill is OPAQUE (not 'transparent') — on WebKitGTK the hit canvas skips
+        // transparent fills, which left the polygon unselectable on the desktop.
         if (m.points.length >= 3) {
           group.add(new Konva.Rect({
             name: 'transform-hitbox',
             x: minX, y: minY,
             width: maxX - minX, height: maxY - minY,
-            fill: 'transparent', stroke: 'transparent',
+            fill: '#ffffff',
+            opacity: 0,
+            hitFunc: function (ctx, shape) {
+              ctx.beginPath();
+              ctx.rect(0, 0, shape.width(), shape.height());
+              ctx.closePath();
+              ctx.fillStrokeShape(shape);
+            },
           }));
         }
 
@@ -379,13 +388,24 @@ export function createMarkupNode(markup: Markup, pageHeightPts: number): Konva.N
 
         // Invisible bounding-box rect so Konva's Transformer can compute resize
         // handles (width/height).  Same approach that makes Box/Ellipse scalable.
+        // NOTE: fill must be OPAQUE (not 'transparent') — on WebKitGTK the hit
+        // canvas skips transparent fills, leaving the polygon with no interior hit
+        // area (only the hairline outline), which made it unselectable on the
+        // desktop. opacity:0 keeps it visually invisible while an explicit hitFunc
+        // guarantees the whole bounding box is a hit target on every engine.
         group.add(new Konva.Rect({
           name: 'transform-hitbox',
           x: minX, y: minY,
           width: maxX - minX,
           height: maxY - minY,
-          fill: 'transparent',
-          stroke: 'transparent',
+          fill: '#ffffff',
+          opacity: 0,
+          hitFunc: function (ctx, shape) {
+            ctx.beginPath();
+            ctx.rect(0, 0, shape.width(), shape.height());
+            ctx.closePath();
+            ctx.fillStrokeShape(shape);
+          },
         }));
 
         group.add(new Konva.Line({
