@@ -753,6 +753,52 @@ function buildToolContext(): ToolContext {
     const p = currentPage();
     return p ? (p.markups.find(m => m.id === ids[0]) ?? null) : null;
   },
+  /** Debug: what does markupLayer.getIntersection return at the current pointer? */
+  hitAtPointer(): unknown {
+    const sm = stageManager;
+    if (!sm || !sm.stage) return null;
+    const abs = sm.stage.getPointerPosition();
+    if (!abs) return { err: 'no-pointer' };
+    const hit = sm.markupLayer.getIntersection(abs);
+    if (!hit) return { abs, hit: null };
+    const walk = (n: Konva.Node): any => ({
+      cls: (n as any).className, name: n.name(), id: n.id(),
+      parent: n.getParent() ? { cls: (n.getParent() as any).className, name: (n.getParent() as any).name?.(), id: (n.getParent() as any).id?.() } : null,
+    });
+    return { abs, hit: walk(hit) };
+  },
+  /** Debug: report the live-drawing preview shapes (interactionLayer) for the active tool. */
+  livePreviewStructure(): unknown {
+    const sm = stageManager;
+    if (!sm || !sm.interactionLayer) return null;
+    const layer = sm.interactionLayer as unknown as Konva.Layer;
+    return layer.getChildren().map((n: Konva.Node) => ({
+      cls: (n as any).className,
+      name: n.name(),
+      id: n.id(),
+      closed: (n as any).closed?.(),
+      pointsLen: (n as any).points?.()?.length,
+    }));
+  },
+  /** Debug: report child shapes (class + name) of the first rendered node of `type`. */
+  nodeStructure(type: string): unknown {
+    const sm = stageManager;
+    if (!sm) return null;
+    const p = currentPage();
+    const id = p?.markups.find(m => m.type === type)?.id;
+    if (!id) return null;
+    const node = sm.findNode(id);
+    if (!node) return null;
+    const walk = (n: Konva.Node): any => ({
+      cls: (n as any).className,
+      name: n.name(),
+      id: n.id(),
+      closed: (n as any).closed?.(),
+      pointsLen: (n as any).points?.()?.length,
+      children: (n as any).getChildren?.()?.map(walk) ?? undefined,
+    });
+    return walk(node);
+  },
   /**
    * On-screen bounding boxes of all rendered markup nodes, in real stage/screen pixel
    * coordinates (the stage is scaled/offset to fit the page, so the rect must be run through
