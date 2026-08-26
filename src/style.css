@@ -2,6 +2,7 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
+  color-scheme: dark; /* make native form controls (incl. <select> option popups) render dark on Linux/WebKitGTK */
   --bg-dark:    #1a1d21;
   --bg-mid:     #24282e;
   --bg-light:   #2e333b;
@@ -247,6 +248,13 @@ html, body { height: 100%; overflow: hidden; }
   padding: 2px 6px;
   font-size: 12px;
   cursor: pointer;
+}
+
+/* Native <option> popups render via the OS; force dark bg + light text so the
+   open list is never light-on-light (esp. on Linux/WebKitGTK light themes). */
+select option {
+  background: var(--bg-mid);
+  color: var(--text);
 }
 
 /* ── Main content ────────────────────────────────────────────────────────── */
@@ -659,6 +667,7 @@ html, body { height: 100%; overflow: hidden; }
   padding: 5px 8px;
   font-size: 13px;
 }
+#modal-body select option { background: var(--bg-mid); color: var(--text); }
 
 #modal-body input:focus,
 #modal-body select:focus {
