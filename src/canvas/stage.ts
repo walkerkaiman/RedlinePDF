@@ -303,10 +303,28 @@ export function createMarkupNode(markup: Markup, pageHeightPts: number): Konva.N
 
       if (m.points.length >= 2) {
         const konvaPoints: number[] = [];
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
         for (const p of m.points) {
           const kp = pdfToKonva(p.x, p.y, pageHeightPts);
           konvaPoints.push(kp.x, kp.y);
+          if (kp.x < minX) minX = kp.x;
+          if (kp.x > maxX) maxX = kp.x;
+          if (kp.y < minY) minY = kp.y;
+          if (kp.y > maxY) maxY = kp.y;
         }
+
+        // Invisible full-area hitbox so the ENTIRE polygon (not just its thin
+        // dashed outline / faint fill) is selectable, and so Konva.Transformer
+        // can compute resize handles. Mirrors the polygon-area pattern.
+        if (m.points.length >= 3) {
+          group.add(new Konva.Rect({
+            name: 'transform-hitbox',
+            x: minX, y: minY,
+            width: maxX - minX, height: maxY - minY,
+            fill: 'transparent', stroke: 'transparent',
+          }));
+        }
+
         const poly = new Konva.Line({
           points: konvaPoints,
           closed: m.points.length >= 3,
