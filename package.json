@@ -8,6 +8,8 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "test:open-doc": "playwright test tests/open-document.spec.ts --reporter=list",
+    "test:e2e": "playwright test --config=playwright.desktop.config.ts --reporter=list",
+    "test:e2e:dev": "playwright test --reporter=list",
     "test:loop": "node scripts/playwright-loop.js",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
