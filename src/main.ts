@@ -536,6 +536,7 @@ async function loadPdfFile(bytes: Uint8Array, fileName: string, filePath: string
     zoom: 1,
     undoAvailable: false,
     redoAvailable: false,
+    scale: { ...DEFAULT_PAGE_SCALE }, // fresh document starts uncalibrated
   });
 
   // A freshly loaded document must be count-able immediately — the Count tool's onClick
@@ -744,6 +745,8 @@ function buildToolContext(): ToolContext {
     }).map((n: Konva.Node) => n.id());
   },
   get selectedIds(): string[] { return appState.state.selectedMarkupIds; },
+  /** Whether the active page's scale is calibrated (mirrored into appState). Regression guard for project-load scale restore. */
+  get scaleCalibrated(): boolean { return !!appState.state.scale?.calibrated; },
   /** Count symbol size (driven by the always-visible Size slider in the count tool panel). */
   get countSymbolSize(): number { return appState.state.countSymbolSize; },
   /** First currently-selected markup (for asserting style commits from the properties panel). */
@@ -1316,6 +1319,11 @@ async function loadPdfFromProject(p: ProjectData, b: Uint8Array, projectFileName
     pushCountSummary();
     const firstPage = currentPage();
     if (firstPage && firstPage.countCategories.length > 0) refreshLegend(firstPage);
+    // Mirror the loaded project's active page scale into appState.state.scale so
+    // measure tools (which read getScale() -> appState.state.scale) see the
+    // calibrated scale instead of the default uncalibrated one. Fixes "Set scale
+    // first" / "no scale set" on measure markups after opening a project.
+    if (firstPage) appState.update({ scale: { ...firstPage.scale } });
   } finally {
     hideWorking();
   }
@@ -1455,6 +1463,11 @@ function setupStateListeners(): void {
     pushCountSummary();
     const pg = currentPage();
     if (pg && pg.countCategories.length > 0) refreshLegend(pg);
+    // Keep appState.state.scale (the mirror measure tools read via getScale())
+    // in sync with the newly-active page's scale. Without this, a calibrated page
+    // loaded from a project would still report "Set scale first" because the
+    // mirror stayed at the default uncalibrated scale.
+    if (pg) appState.update({ scale: { ...pg.scale } });
   });
 
   appState.on('units-change', () => {
