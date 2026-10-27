@@ -14,7 +14,7 @@ const PDF3_PATH = path.join(__dirname, 'fixtures', 'test-3page-mixed.pdf'); // 3
 
 type RedlineDebug = {
   markups?: number; totalPages?: number; pageIds?: string[]; pageMarkups?: number[];
-  pagePanelOpen?: boolean;
+  pagePanelOpen?: boolean; pageIndex?: number;
   reorderPages?: (order: number[]) => Promise<void>;
   rotatePage?: (i: number) => Promise<void>;
   deletePage?: (i: number) => Promise<void>;
@@ -45,6 +45,25 @@ test.describe('Page panel', () => {
     await expect(page.locator('#page-panel .page-card')).toHaveCount(3);
     // thumbnails render lazily but the observer fires immediately for visible cards
     await expect.poll(async () => page.locator('#page-panel .page-thumb canvas').count(), { timeout: 10_000 }).toBeGreaterThan(0);
+  });
+
+  test('clicking a page card navigates the editor to that page', async ({ page }) => {
+    await page.click('#btn-page-panel');
+    await expect(page.locator('#page-panel .page-card')).toHaveCount(3);
+    const idsBefore = [...(await dbg(page)).pageIds!];
+
+    await page.locator('#page-panel .page-card').nth(2).click();
+
+    await expect.poll(async () => (await dbg(page)).pageIndex, { timeout: 10_000 }).toBe(2);
+    // the active page is still the same document page (navigation, not reorder)
+    expect((await dbg(page)).pageIds).toEqual(idsBefore);
+    // the card highlight follows the page-change event
+    await expect(page.locator('#page-panel .page-card.active')).toHaveCount(1);
+    expect(await page.locator('#page-panel .page-card.active').getAttribute('data-index')).toBe('2');
+
+    // and back to page 1
+    await page.locator('#page-panel .page-card').nth(0).click();
+    await expect.poll(async () => (await dbg(page)).pageIndex, { timeout: 10_000 }).toBe(0);
   });
 
   test('drag card 1 onto card 3 → order becomes [2,0,1]', async ({ page }) => {

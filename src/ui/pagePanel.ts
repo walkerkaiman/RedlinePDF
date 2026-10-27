@@ -15,6 +15,8 @@ export interface PagePanelOps {
   reorder(order: number[]): void;
   deletePage(index: number): void;
   rotatePage(index: number): void;
+  /** Card click: make `index` the active page in the editor. */
+  navigate(index: number): void;
   /** OS-dropped PDF file(s) inserted before `insertAt` (null = end). */
   insertPdfFiles(files: File[], insertAt: number | null): void;
 }
@@ -162,7 +164,7 @@ export function initPagePanel(ops: PagePanelOps): PagePanel {
 
       card.title = `Page ${i + 1}${p.sourceFile ? ` — ${p.sourceFile}` : ''}`;
 
-      card.addEventListener('click', () => { activeIndex = i; }); // main.ts drives setActive via appState
+      card.addEventListener('click', () => { ops.navigate(i); }); // page-change re-highlights via setActive
       card.addEventListener('contextmenu', e => {
         e.preventDefault();
         openMenu(e.clientX, e.clientY, i);

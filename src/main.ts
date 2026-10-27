@@ -1557,6 +1557,7 @@ function ensurePagePanel(): PagePanel {
       reorder: order => void reorderPages(order),
       deletePage: index => void deletePageAt(index),
       rotatePage: index => void rotatePageAt(index),
+      navigate: index => appState.setPage(index),
       insertPdfFiles: (files, at) => {
         void (async () => {
           for (const f of files) {
