@@ -8,3 +8,4 @@
 - **Left:** user drag-drop confirmation on the desktop build; Windows/macOS installers.
 - **Update 12:30:** built RedlinePDF_0.2.19_amd64.deb (4.6 MB, sent to user over WhatsApp). AppImage step fails (`failed to run linuxdeploy`) — pre-existing; deb+rpm bundle fine.
 - **Update 18:21:** installed 0.2.19 deb system-wide (replaced 0.2.18); removed corrupt junk launcher `redline.desktop**` from ~/.local/share/applications; wrote clean user override RedlinePDF.desktop (validated, pinned to Ubuntu dock favorites); gtk-launch smoke: process starts, stops clean.
+- **Update 18:45:** page-panel card click now navigates the editor (PagePanelOps.navigate -> appState.setPage; old handler only set a local highlight). New e2e 'clicking a page card navigates' — full suite 40/40 on WebKit production build, vitest 51/51, tsc clean. Bumped 0.2.20, built deb, installed system-wide (AppImage linuxdeploy failure still pre-existing).
