@@ -6,7 +6,7 @@ import path from 'path';
 // Without this, measure/area tools drew "Set scale first" / "no scale set" even
 // though the saved page was calibrated. Reproduces the FABLE 30A project.
 
-const REDLINE = '/home/kaiman/Desktop/FABLE 30A_Rev1_SIGNED.redline';
+const REDLINE = path.resolve(process.cwd(), 'tests/fixtures/scaled-project.redline');
 
 test('loading a .redline project restores the calibrated scale', async ({ page }) => {
   await page.goto('/');

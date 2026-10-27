@@ -2,6 +2,9 @@ import './style.css';
 import Konva from 'konva';
 import { appState } from './state/appState.ts';
 import { loadPdf, fitPageScale } from './pdf/renderer.ts';
+import { mergePdfBytes, reorderPdfBytes, deletePdfPage, rotatePdfPage } from './pdf/combine.ts';
+import { initPagePanel, type PagePanel } from './ui/pagePanel.ts';
+import { migrateProjectData } from './storage/projectStore.ts';
 import { createStage } from './canvas/stage.ts';
 import { initToolbar, showCanvas, updateCursorStatus } from './ui/toolbar.ts';
 import { initPropertiesPanel } from './ui/properties.ts';
@@ -105,6 +108,51 @@ function showToast(message: string, type: 'info' | 'warn' = 'info', duration = 4
 
 // ── History helpers ───────────────────────────────────────────────────────────
 
+/**
+ * Structural undo (combine / reorder / delete / rotate). Separate from the
+ * per-page markup stack: a structural snapshot captures the whole project
+ * model plus the combined PDF bytes, so one Ctrl+Z reverses a whole merge.
+ * Byte copies are heavy, so depth is capped.
+ */
+interface StructuralSnapshot {
+  project: ProjectData;
+  pdfBytes: Uint8Array;
+}
+const structuralUndoStack: StructuralSnapshot[] = [];
+const structuralRedoStack: StructuralSnapshot[] = [];
+const STRUCTURAL_UNDO_CAP = 10;
+// Structural ops re-render via a page-change event; that listener normally
+// clears undo history on page navigation, so it must not wipe the structural
+// snapshot we just pushed.
+let suppressPageChangeUndoClear = false;
+
+function pushStructuralUndo(): void {
+  structuralUndoStack.push({
+    project: JSON.parse(JSON.stringify(project)),
+    pdfBytes: pdfBytes ? pdfBytes.slice(0) : new Uint8Array(0),
+  });
+  if (structuralUndoStack.length > STRUCTURAL_UNDO_CAP) structuralUndoStack.shift();
+  structuralRedoStack.length = 0;
+}
+
+async function applyStructural(snap: StructuralSnapshot): Promise<void> {
+  if (pdfRenderer) { pdfRenderer.destroy(); pdfRenderer = null; }
+  pdfBytes = snap.pdfBytes;
+  pdfRenderer = await loadPdf(pdfBytes);
+  project = snap.project;
+  const maxIdx = pdfRenderer.numPages - 1;
+  const active = Math.min(appState.state.activePageIndex, maxIdx);
+  suppressPageChangeUndoClear = true;
+  appState.update({ totalPages: pdfRenderer.numPages, activePageIndex: active });
+  try {
+    await renderPage(active);
+  } finally {
+    suppressPageChangeUndoClear = false;
+  }
+  pushCountSummary();
+  scheduleAutosave();
+}
+
 function snapshotMarkups(): void {
   const page = currentPage();
   if (!page) return;
@@ -124,6 +172,16 @@ function restoreSnapshot(snapshot: string, page: import('./model/document.ts').P
 }
 
 function undo(): void {
+  // Structural ops (combine/reorder/delete/rotate) undo first — they replace
+  // the whole document, so per-page markup snapshots are stale across them.
+  if (structuralUndoStack.length > 0) {
+    void (async () => {
+      structuralRedoStack.push({ project: JSON.parse(JSON.stringify(project)), pdfBytes: pdfBytes ? pdfBytes.slice(0) : new Uint8Array(0) });
+      await applyStructural(structuralUndoStack.pop()!);
+      appState.update({ undoAvailable: structuralUndoStack.length > 0 || undoStack.length > 0, redoAvailable: true });
+    })();
+    return;
+  }
   const page = currentPage();
   if (!page || undoStack.length === 0) return;
   if (activeTool instanceof SelectTool) (activeTool as SelectTool).clearSelection();
@@ -138,6 +196,15 @@ function undo(): void {
 }
 
 function redo(): void {
+  if (structuralRedoStack.length > 0) {
+    void (async () => {
+      structuralUndoStack.push({ project: JSON.parse(JSON.stringify(project)), pdfBytes: pdfBytes ? pdfBytes.slice(0) : new Uint8Array(0) });
+      if (structuralUndoStack.length > STRUCTURAL_UNDO_CAP) structuralUndoStack.shift();
+      await applyStructural(structuralRedoStack.pop()!);
+      appState.update({ undoAvailable: true, redoAvailable: structuralRedoStack.length > 0 });
+    })();
+    return;
+  }
   const page = currentPage();
   if (!page || redoStack.length === 0) return;
   if (activeTool instanceof SelectTool) (activeTool as SelectTool).clearSelection();
@@ -159,7 +226,7 @@ function currentPage(): PageData | null {
 
 function ensurePage(index: number): PageData {
   while (project.pages.length <= index) {
-    project.pages.push({ index: project.pages.length, scale: { ...DEFAULT_PAGE_SCALE }, markups: [], countCategories: [] });
+    project.pages.push({ index: project.pages.length, pageId: generateId().replace(/^m_/, 'p_'), scale: { ...DEFAULT_PAGE_SCALE }, markups: [], countCategories: [] });
   }
   const page = project.pages[index];
   page.countCategories ??= [];
@@ -515,11 +582,13 @@ async function loadPdfFile(bytes: Uint8Array, fileName: string, filePath: string
 
   const numPages = pdfRenderer.numPages;
   project = {
-    version: 1,
+    version: 2,
     pdfFileName: fileName,
     units: { ...DEFAULT_UNITS },
     pages: Array.from({ length: numPages }, (_, i) => ({
       index: i,
+      pageId: generateId().replace(/^m_/, 'p_'),
+      sourceFile: fileName,
       scale: { ...DEFAULT_PAGE_SCALE },
       markups: [],
       countCategories: [],
@@ -528,6 +597,8 @@ async function loadPdfFile(bytes: Uint8Array, fileName: string, filePath: string
 
   undoStack.length = 0;
   redoStack.length = 0;
+  structuralUndoStack.length = 0;
+  structuralRedoStack.length = 0;
   lastSavedProjectPath = null; // new PDF = unsaved project
   appState.update({
     hasPdf: true,
@@ -538,6 +609,7 @@ async function loadPdfFile(bytes: Uint8Array, fileName: string, filePath: string
     redoAvailable: false,
     scale: { ...DEFAULT_PAGE_SCALE }, // fresh document starts uncalibrated
   });
+  pagePanel?.render(pdfRenderer, project);
 
   // A freshly loaded document must be count-able immediately — the Count tool's onClick
   // bails when no category is selected. Seed one default per project (projects are rebuilt
@@ -734,6 +806,16 @@ function buildToolContext(): ToolContext {
   get markups(): number { const p = currentPage(); return p ? p.markups.length : -1; },
   get markupTypes(): string[] { const p = currentPage(); return p ? (p.markups.map(m => m.type) as string[]) : []; },
   get pageIndex(): number { return appState.state.activePageIndex; },
+  get totalPages(): number { return appState.state.totalPages; },
+  // All seam getters return fresh copies: map() already does, never return
+  // project.pages itself — a caller holding the array would see later splices.
+  get pageIds(): string[] { return project.pages.map(p => p.pageId); },
+  get pageSourceFiles(): (string | undefined)[] { return project.pages.map(p => p.sourceFile); },
+  get pageMarkups(): number[] { return project.pages.map(p => p.markups.length); },
+  get pagePanelOpen(): boolean { return pagePanel?.isOpen() ?? false; },
+  reorderPages(order: number[]): Promise<void> { return reorderPages(order); },
+  rotatePage(index: number): Promise<void> { return rotatePageAt(index); },
+  deletePage(index: number): Promise<void> { return deletePageAt(index); },
   get activeCountCategoryId(): string | null { return appState.state.activeCountCategoryId; },
   /** List ids of actual Konva markup nodes on the markup layer (excludes transformer). */
   get renderedNodeIds(): string[] {
@@ -1000,7 +1082,13 @@ async function handleDroppedFile(file: File): Promise<void> {
   try {
     if (file.name.endsWith('.pdf')) {
       const bytes = new Uint8Array(await file.arrayBuffer());
-      await loadPdfFile(bytes, file.name, null);
+      // A document is already open → dropping a PDF COMBINES it (appends).
+      // With nothing open it simply opens, as before.
+      if (appState.state.hasPdf) {
+        await combinePdfFile(bytes, file.name, null);
+      } else {
+        await loadPdfFile(bytes, file.name, null);
+      }
     } else if (file.name.endsWith('.redline')) {
       const { project: p, pdfBytes: b } = await importProjectFile(file);
       await loadPdfFromProject(p, b, file.name, null);
@@ -1146,11 +1234,24 @@ function setupDragDrop(): void {
         viewport.classList.remove('drag-over');
         const { readFile, readTextFile } = await import('@tauri-apps/plugin-fs');
         const name = path.split(/[\\/]/).pop() ?? '';
+        // OS-drop onto the open page panel → insert at that position.
+        let insertAt: number | null = null;
+        if (pagePanel && pagePanel.isOpen()) {
+          const panelEl = document.getElementById('page-panel');
+          const r = panelEl?.getBoundingClientRect();
+          if (r && event.payload.position.x >= r.left && event.payload.position.x <= r.right) {
+            insertAt = pagePanelInsertAtFromY(event.payload.position.y);
+          }
+        }
         showWorking('Loading…');
         try {
           if (name.endsWith('.pdf')) {
             const bytes = await readFile(path);
-            await loadPdfFile(new Uint8Array(bytes), name, path);
+            if (appState.state.hasPdf) {
+              await combinePdfFile(new Uint8Array(bytes), name, insertAt);
+            } else {
+              await loadPdfFile(new Uint8Array(bytes), name, path);
+            }
           } else if (name.endsWith('.redline')) {
             const text = await readTextFile(path);
             const blob = new Blob([text], { type: 'application/json' });
@@ -1214,6 +1315,12 @@ function setupFileInputs(): void {
   document.getElementById('drop-open-btn')?.addEventListener('click', () => void handleOpenPdf());
   document.getElementById('btn-open-project')?.addEventListener('click', () => void handleOpenProject());
   document.getElementById('drop-open-project-btn')?.addEventListener('click', () => void handleOpenProject());
+
+  // Page panel toggle
+  document.getElementById('btn-page-panel')?.addEventListener('click', () => togglePagePanel());
+  document.getElementById('btn-page-panel-close')?.addEventListener('click', () => {
+    if (pagePanel?.isOpen()) pagePanel.setOpen(false);
+  });
 
   document.getElementById('btn-save-project')?.addEventListener('click', () => void handleSaveProject());
   document.getElementById('btn-save-project-as')?.addEventListener('click', () => void handleSaveProjectAs());
@@ -1279,7 +1386,7 @@ function setupFileInputs(): void {
 async function loadPdfFromProject(p: ProjectData, b: Uint8Array, projectFileName: string | null = null, projectFilePath: string | null = null): Promise<void> {
   showWorking('Opening project…');
   try {
-    project = p;
+    project = migrateProjectData(p);
     // Normalize pages from older project files that predate countCategories
     project.pages.forEach(pg => { pg.countCategories ??= []; });
     pdfBytes = b;
@@ -1290,6 +1397,8 @@ async function loadPdfFromProject(p: ProjectData, b: Uint8Array, projectFileName
     pdfRenderer = await loadPdf(b);
     undoStack.length = 0;
     redoStack.length = 0;
+    structuralUndoStack.length = 0;
+    structuralRedoStack.length = 0;
     lastSavedProjectPath = projectFilePath; // if opened from recent, path is already known
     appState.update({
       hasPdf: true,
@@ -1300,6 +1409,7 @@ async function loadPdfFromProject(p: ProjectData, b: Uint8Array, projectFileName
       undoAvailable: false,
       redoAvailable: false,
     });
+    pagePanel?.render(pdfRenderer, project);
 
     // Record in recent files; cache file bytes in browser (no OS path available)
     const displayName = projectFileName ?? p.pdfFileName?.replace(/\.pdf$/i, '.redline') ?? 'project.redline';
@@ -1326,6 +1436,223 @@ async function loadPdfFromProject(p: ProjectData, b: Uint8Array, projectFileName
     if (firstPage) appState.update({ scale: { ...firstPage.scale } });
   } finally {
     hideWorking();
+  }
+}
+
+// ── Combine (drop a PDF onto an open document) ───────────────────────────────
+
+/**
+ * Append (or insert) the pages of a dropped PDF into the open document.
+ * The combined PDF bytes are rebuilt so page order always matches
+ * project.pages order (pages[i].index === i) — the renderer and exporter
+ * need no changes. Existing markups live in the model, never in the bytes,
+ * so they are untouched by the rebuild.
+ */
+async function combinePdfFile(bytes: Uint8Array, fileName: string, insertAt: number | null = null): Promise<void> {
+  if (!pdfBytes || !pdfRenderer) {
+    await loadPdfFile(bytes, fileName, null);
+    return;
+  }
+  await queueStructural(() => combinePdfFileInner(bytes, fileName, insertAt));
+}
+
+async function combinePdfFileInner(bytes: Uint8Array, fileName: string, insertAt: number | null): Promise<void> {
+  if (!pdfBytes || !pdfRenderer) return; // document closed while the op was queued
+  const baseBytes = pdfBytes;
+  const baseRenderer = pdfRenderer;
+  showWorking('Combining PDFs…');
+  try {
+    let merged;
+    try {
+      merged = await mergePdfBytes(baseBytes, bytes, insertAt);
+    } catch (err) {
+      console.error('combine failed:', err);
+      showToast(`Could not combine ${fileName} — invalid or unreadable PDF.`, 'warn', 5000);
+      return;
+    }
+
+    pushStructuralUndo();
+
+    const at = insertAt === null ? project.pages.length : Math.max(0, Math.min(insertAt, project.pages.length));
+    const added: PageData[] = Array.from({ length: merged.addedPages }, (_, i) => ({
+      index: at + i,
+      pageId: generateId().replace(/^m_/, 'p_'),
+      sourceFile: fileName,
+      scale: { ...DEFAULT_PAGE_SCALE },
+      markups: [],
+      countCategories: [],
+    }));
+    project.pages.splice(at, 0, ...added);
+    project.pages.forEach((p, i) => {
+      p.index = i;
+      for (const m of p.markups) m.pageIndex = i;
+    });
+
+    // Swap the renderer to the combined bytes, keeping the current page/zoom.
+    baseRenderer.destroy();
+    pdfRenderer = await loadPdf(merged.bytes);
+    pdfBytes = merged.bytes;
+
+    const active = Math.min(appState.state.activePageIndex, pdfRenderer.numPages - 1);
+    suppressPageChangeUndoClear = true;
+    appState.update({ totalPages: pdfRenderer.numPages, activePageIndex: active });
+    try {
+      await renderPage(active);
+    } finally {
+      suppressPageChangeUndoClear = false;
+    }
+    pagePanel?.render(pdfRenderer, project);
+
+    // New pages get the project's first count category so Count works on them.
+    const seed = project.pages[0]?.countCategories?.[0];
+    if (seed) for (const p of added) p.countCategories = [JSON.parse(JSON.stringify(seed))];
+
+    pushCountSummary();
+    scheduleAutosave();
+    showToast(`Added ${merged.addedPages} page${merged.addedPages === 1 ? '' : 's'} from ${fileName} — Ctrl+Z to undo`, 'info', 6000);
+  } finally {
+    hideWorking();
+  }
+}
+
+// ── Page panel (reorder / rotate / delete / insert-at) ───────────────────────
+
+let pagePanel: PagePanel | null = null;
+
+// Structural ops rebuild the whole document; running two concurrently would
+// remap the model against stale bytes (second op's index resolves against the
+// pre-first-op page list). Serialize them through a promise chain.
+let structuralChain: Promise<void> = Promise.resolve();
+function queueStructural(fn: () => Promise<void>): Promise<void> {
+  const next = structuralChain.then(fn, fn);
+  structuralChain = next.catch(() => {});
+  return next;
+}
+
+/** Shared rebuild path: new bytes + remapped model + renderer swap + undo. */
+async function applyStructuralOp(newBytes: Uint8Array, remap: () => void, toastMsg: string): Promise<void> {
+  if (!pdfBytes || !pdfRenderer) return;
+  pushStructuralUndo();
+  pdfBytes = newBytes;
+  remap();
+  pdfRenderer.destroy();
+  pdfRenderer = await loadPdf(pdfBytes);
+  const active = Math.min(appState.state.activePageIndex, pdfRenderer.numPages - 1);
+  suppressPageChangeUndoClear = true;
+  appState.update({ totalPages: pdfRenderer.numPages, activePageIndex: active });
+  try {
+    await renderPage(active);
+  } finally {
+    suppressPageChangeUndoClear = false;
+  }
+  pagePanel?.render(pdfRenderer, project);
+  pushCountSummary();
+  scheduleAutosave();
+  showToast(toastMsg, 'info', 4000);
+}
+
+function ensurePagePanel(): PagePanel {
+  if (!pagePanel) {
+    pagePanel = initPagePanel({
+      reorder: order => void reorderPages(order),
+      deletePage: index => void deletePageAt(index),
+      rotatePage: index => void rotatePageAt(index),
+      insertPdfFiles: (files, at) => {
+        void (async () => {
+          for (const f of files) {
+            await combinePdfFile(new Uint8Array(await f.arrayBuffer()), f.name, at);
+            if (at !== null) at += 1; // successive drops stack after the insertion point
+          }
+        })();
+      },
+    });
+  }
+  return pagePanel;
+}
+
+async function reorderPages(order: number[]): Promise<void> {
+  await queueStructural(async () => {
+  if (!pdfBytes || !pdfRenderer) return;
+  try {
+    const bytes = await reorderPdfBytes(pdfBytes, order);
+    await applyStructuralOp(bytes, () => {
+      const byId = new Map(project.pages.map(p => [p.pageId, p]));
+      project.pages = order.map(i => byId.get(project.pages[i].pageId)!);
+      project.pages.forEach((p, i) => {
+        p.index = i;
+        for (const m of p.markups) m.pageIndex = i;
+      });
+    }, 'Pages reordered — Ctrl+Z to undo');
+  } catch (err) {
+    console.error('reorder failed:', err);
+    showToast('Reorder failed — document unchanged.', 'warn', 5000);
+  }
+  });
+}
+
+async function deletePageAt(index: number): Promise<void> {
+  await queueStructural(async () => {
+  if (!pdfBytes || !pdfRenderer) return;
+  if (project.pages.length <= 1) {
+    showToast('Cannot delete the only page.', 'warn', 4000);
+    return;
+  }
+  if (index < 0 || index >= project.pages.length) {
+    showToast('Delete failed — page index out of range.', 'warn', 4000);
+    return;
+  }
+  try {
+    const bytes = await deletePdfPage(pdfBytes, index);
+    await applyStructuralOp(bytes, () => {
+      project.pages.splice(index, 1);
+      project.pages.forEach((p, i) => {
+        p.index = i;
+        for (const m of p.markups) m.pageIndex = i;
+      });
+    }, `Deleted page ${index + 1} — Ctrl+Z to undo`);
+  } catch (err) {
+    console.error('delete failed:', err);
+    showToast('Delete failed — document unchanged.', 'warn', 5000);
+  }
+  });
+}
+
+async function rotatePageAt(index: number): Promise<void> {
+  await queueStructural(async () => {
+  if (!pdfBytes || !pdfRenderer) return;
+  try {
+    const bytes = await rotatePdfPage(pdfBytes, index, 90);
+    await applyStructuralOp(bytes, () => {}, `Rotated page ${index + 1} — Ctrl+Z to undo`);
+  } catch (err) {
+    console.error('rotate failed:', err);
+    showToast('Rotate failed — document unchanged.', 'warn', 5000);
+  }
+  });
+}
+
+/** Insert position for an OS-level drop at viewport y (Tauri drag-drop path). */
+function pagePanelInsertAtFromY(y: number): number | null {
+  const list = document.getElementById('page-panel-list');
+  if (!list) return null;
+  const cards = [...list.querySelectorAll<HTMLElement>('.page-card')];
+  for (let i = 0; i < cards.length; i++) {
+    const r = cards[i].getBoundingClientRect();
+    if (y < r.top + r.height / 2) return i;
+  }
+  return cards.length;
+}
+
+function togglePagePanel(): void {
+  if (!appState.state.hasPdf) {
+    showToast('Open a document first.', 'info', 3000);
+    return;
+  }
+  const panel = ensurePagePanel();
+  const next = !panel.isOpen();
+  panel.setOpen(next);
+  if (next) {
+    panel.render(pdfRenderer!, project);
+    panel.setActive(appState.state.activePageIndex);
   }
 }
 
@@ -1456,10 +1783,13 @@ function setupStateListeners(): void {
 
   appState.on('page-change', async (pageIndex) => {
     if (!pdfRenderer) return;
-    undoStack.length = 0;
-    redoStack.length = 0;
-    appState.update({ undoAvailable: false, redoAvailable: false });
+    if (!suppressPageChangeUndoClear) {
+      undoStack.length = 0;
+      redoStack.length = 0;
+      appState.update({ undoAvailable: false, redoAvailable: false });
+    }
     await renderPage(pageIndex as number);
+    pagePanel?.setActive(pageIndex as number);
     pushCountSummary();
     const pg = currentPage();
     if (pg && pg.countCategories.length > 0) refreshLegend(pg);

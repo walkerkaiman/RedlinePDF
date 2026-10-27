@@ -21,6 +21,8 @@ export interface PdfRenderer {
   loadPage(pageIndex: number, scale: number): Promise<PageInfo>;
   getPageSizePts(pageIndex: number): Promise<{ widthPts: number; heightPts: number }>;
   destroy(): void;
+  /** True after destroy(); late async work (lazy thumbnails) must bail. */
+  isDestroyed(): boolean;
 }
 
 /**
@@ -29,12 +31,14 @@ export interface PdfRenderer {
 export async function loadPdf(bytes: Uint8Array): Promise<PdfRenderer> {
   const loadingTask = pdfjsLib.getDocument({ data: bytes.slice(0) });
   const doc = await loadingTask.promise;
+  let destroyed = false;
 
   return {
     doc,
     numPages: doc.numPages,
 
     async loadPage(pageIndex: number, scale: number): Promise<PageInfo> {
+      if (destroyed) throw new Error('renderer destroyed');
       const page: PDFPageProxy = await doc.getPage(pageIndex + 1); // pdf.js is 1-indexed
       const viewport = page.getViewport({ scale });
 
@@ -65,8 +69,10 @@ export async function loadPdf(bytes: Uint8Array): Promise<PdfRenderer> {
     },
 
     destroy(): void {
+      destroyed = true;
       doc.destroy();
     },
+    isDestroyed(): boolean { return destroyed; },
   };
 }
 

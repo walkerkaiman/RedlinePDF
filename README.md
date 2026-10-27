@@ -69,11 +69,16 @@ Context-sensitive panel on the right updates based on the selected tool or selec
 - **Scroll wheel** → zoom in/out centered on cursor
 - **F** → fit the current page to the viewport
 
+### Page Management
+- **Combine PDFs** — drag another PDF into the window while a document is open and its pages are appended (or inserted at a drop position on the page panel). Undoable with Ctrl+Z.
+- **Page panel** — the **Pages** button opens a thumbnail rail: drag cards to reorder, right-click for Rotate 90° / Delete. Markups, scales, and count legends follow their page through every move.
+- Note: combining rebuilds the PDF with pdf-lib, which drops form fields and native PDF annotations from source files. Redline's own markups are unaffected.
+
 ### Project Files
 `.redline` files are fully self-contained — the original PDF is embedded alongside all markups. Send a single `.redline` file to a colleague and they can open and continue editing the project with no separate PDF needed.
 
 ### Undo / Redo
-Full undo history for all operations including adding, deleting, moving, resizing, and nudging markups.
+Full undo history for all operations including adding, deleting, moving, resizing, and nudging markups. Structural edits (combine, reorder, delete page, rotate) undo as whole steps (last 10 kept).
 
 ### Recent Files
 Hover over **Open PDF** or **Open Project** to see the 10 most recently opened files. Click any entry to reload it instantly — no file picker needed.

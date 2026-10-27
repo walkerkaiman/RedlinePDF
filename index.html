@@ -65,6 +65,10 @@
             <span id="page-indicator">— / —</span>
             <button class="tb-btn-sm" id="btn-next-page" title="Next Page" disabled>&#8250;</button>
           </div>
+          <button class="tb-btn" id="btn-page-panel" title="Toggle page panel — reorder, rotate, delete, insert pages">
+            <svg viewBox="0 0 24 24"><path d="M3 5h8v14H3V5zm10 0h8v6h-8V5zm0 8h8v6h-8v-6zM4 6v12h6V6H4zm10 0v4h6V6h-6zm0 8v4h6v-4h-6z"/></svg>
+            <span>Pages</span>
+          </button>
         </div>
 
         <div class="toolbar-divider"></div>
@@ -192,6 +196,15 @@
 
       <!-- Main Content -->
       <main id="main-content">
+        <!-- Page thumbnail rail (toggle via Pages button) -->
+        <aside id="page-panel" aria-label="Pages">
+          <div class="page-panel-head">
+            <span>Pages</span>
+            <button class="tb-btn-sm" id="btn-page-panel-close" title="Close page panel">✕</button>
+          </div>
+          <div id="page-panel-list"></div>
+        </aside>
+
         <!-- Canvas Viewport -->
         <div id="canvas-viewport">
           <!-- Drop zone shown when no PDF loaded -->

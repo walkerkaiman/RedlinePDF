@@ -81,7 +81,7 @@ export async function loadAutosave(): Promise<{ project: ProjectData; pdfBytes: 
     db.get(STORE_PDF, AUTOSAVE_KEY) as Promise<PdfRecord | undefined>,
   ]);
   if (!projectRecord || !pdfRecord) return null;
-  return { project: projectRecord.data, pdfBytes: pdfRecord.bytes };
+  return { project: migrateProjectData(projectRecord.data), pdfBytes: pdfRecord.bytes };
 }
 
 /** Clear autosave slot */
@@ -120,7 +120,24 @@ export async function importProjectFile(file: File): Promise<{ project: ProjectD
     throw new Error('Invalid .redline file format');
   }
   const pdfBytes = base64ToUint8Array(payload.pdfBase64);
-  return { project: payload.project, pdfBytes };
+  return { project: migrateProjectData(payload.project), pdfBytes };
+}
+
+/**
+ * Bring older ProjectData shapes up to the current version in place.
+ * v1 → v2: every page gains a stable pageId and sourceFile provenance.
+ * Idempotent: pages that already carry a pageId are left untouched.
+ */
+export function migrateProjectData(p: ProjectData): ProjectData {
+  if (!Array.isArray(p.pages)) return p;
+  for (const page of p.pages) {
+    if (!page.pageId) {
+      page.pageId = `p_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+    }
+    if (page.sourceFile === undefined && p.pdfFileName) page.sourceFile = p.pdfFileName;
+  }
+  p.version = Math.max(p.version ?? 1, 2);
+  return p;
 }
 
 /**

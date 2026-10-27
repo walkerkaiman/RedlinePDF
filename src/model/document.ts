@@ -168,6 +168,10 @@ export interface PageScale {
 
 export interface PageData {
   index: number;
+  /** Stable identity across reorder/merge (v2+). Assigned at load/merge time. */
+  pageId: string;
+  /** File this page was originally imported from (combine provenance + panel tooltip). */
+  sourceFile?: string;
   scale: PageScale;
   markups: Markup[];
   countCategories: CountCategory[];
