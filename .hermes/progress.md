@@ -19,4 +19,4 @@
 
 ## Release 0.2.21 (2026-10-27) — page-nav perf shipped locally
 - Tag v0.2.21 on eb4bc28 (perf b3a63a5 + version sync via scripts/sync-release-version.mjs).
-- npx tauri build → install deb (AppImage linuxdeploy failure pre-existing, ignore).
+- npx tauri build → RedlinePDF_0.2.21_amd64.deb built + installed system-wide (dpkg shows 0.2.21, binary smoke-starts). AppImage linuxdeploy failure pre-existing, ignored.
