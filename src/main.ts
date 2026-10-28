@@ -611,10 +611,9 @@ async function loadPdfFile(bytes: Uint8Array, fileName: string, filePath: string
   });
   pagePanel?.render(pdfRenderer, project);
 
-  // A freshly loaded document must be count-able immediately — the Count tool's onClick
-  // bails when no category is selected. Seed one default per project (projects are rebuilt
-  // empty on every load; restored projects keep whatever categories they saved).
-  addCountCategory();
+  // No count state is seeded at load: the Count tool self-seeds a default
+  // category on first click. Eagerly seeding one painted a "Count Legend"
+  // box onto every freshly loaded document.
 
   // Record in recent files; cache bytes in browser (no OS path available)
   let cacheKey: string | null = null;

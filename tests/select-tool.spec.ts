@@ -52,6 +52,7 @@ test.describe('Select tool', () => {
   test('clicking a drawn markup with the select tool selects it', async ({ page }) => {
     await page.goto('/');
     await loadPdf(page);
+    await page.click('[data-tool="box"]'); // default tool is select; drawing needs box
     await drawBoxAt(page, 0, 0);
 
     await page.click('[data-tool="select"]').catch(() => {});
@@ -67,6 +68,7 @@ test.describe('Select tool', () => {
   test('Shift+click adds a second markup to the selection', async ({ page }) => {
     await page.goto('/');
     await loadPdf(page);
+    await page.click('[data-tool="box"]'); // default tool is select; drawing needs box
     await drawBoxAt(page, 0, 0);
     await page.click('[data-tool="box"]').catch(() => {}); // drawing auto-releases to select
     await drawBoxAt(page, -120, -90);
@@ -86,6 +88,7 @@ test.describe('Select tool', () => {
   test('clicking empty canvas deselects', async ({ page }) => {
     await page.goto('/');
     await loadPdf(page);
+    await page.click('[data-tool="box"]'); // default tool is select; drawing needs box
     await drawBoxAt(page, 0, 0);
 
     await page.click('[data-tool="select"]').catch(() => {});

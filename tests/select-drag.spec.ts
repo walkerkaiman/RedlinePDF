@@ -18,6 +18,7 @@ test('dragging a selected markup moves it (model position updates)', async ({ pa
   ]);
   await expect(page.locator('#canvas-scroll-container')).toBeVisible({ timeout: 15_000 });
 
+  await page.click('[data-tool="box"]'); // default tool is select; drawing needs box
   const box = await page.locator('#konva-container canvas').first().boundingBox();
   if (!box) throw new Error('no canvas');
   const c = { x: box.x + box.width * 0.5, y: box.y + box.height * 0.5 };

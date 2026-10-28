@@ -40,7 +40,12 @@ test('count tool: still commits after the active category is cleared (seeds a de
   await loadPdf(page);
   await page.click('[data-tool="count"]');
 
-  // Delete the seeded default category via the panel delete button.
+  // First click self-seeds a default category (nothing is seeded at load).
+  const c0 = await centerPoint(page, -60);
+  await page.mouse.click(c0.x, c0.y);
+  await expect.poll(() => activeCat(page), { timeout: 3_000 }).not.toBeNull();
+
+  // Delete that category via the panel delete button.
   const delBtn = page.locator('.count-delete-btn').first();
   await expect(delBtn).toBeVisible({ timeout: 5_000 });
   await delBtn.click();

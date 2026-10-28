@@ -55,6 +55,6 @@ test.describe('Multi-page multi-draw — no cross-page leakage', () => {
     await page.waitForTimeout(200);
     const p1 = await snap(page);
     expect(p1.model, 'page1 still shows exactly 1 ellipse').toBe(1);
-    expect(p1.nodes, `page1 renders 2 nodes (ellipse + legend), got ${p1.nodes}`).toBe(2);
+    expect(p1.nodes, `page1 renders 1 node (its own ellipse), got ${p1.nodes}`).toBe(1);
   });
 });
