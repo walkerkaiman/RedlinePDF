@@ -2,6 +2,10 @@ import Konva from 'konva';
 import type { Markup, PenMarkup, LineMarkup, ArrowMarkup, EllipseMarkup, BoxMarkup, TextMarkup, MeasureLinearMarkup, MeasureRectMarkup, MeasurePolyMarkup, PolygonAreaMarkup, CountMarkup, CountLegendMarkup, ImageMarkup, CountSymbol, Point } from '../model/document.ts';
 import { pdfToKonva, pdfPointsToKonva, pdfRectToKonva, konvaPointsToPdf, konvaRectToPdf, konvaToPdf } from '../geometry/transform.ts';
 
+/** Test seam: counts of synchronous draw() calls per layer (batchDraw excluded).
+ * e2e asserts a navigation performs batched draws, not per-node sync draws. */
+export const drawCounts = { markupSync: 0, bgSync: 0, stageSync: 0 };
+
 export interface KonvaStageManager {
   stage: Konva.Stage;
   bgLayer: Konva.Layer;
@@ -22,6 +26,8 @@ export interface KonvaStageManager {
   setZoom(zoom: number): void;
   /** Add a markup to the markup layer and return the Konva node */
   addMarkupNode(markup: Markup): Konva.Node;
+  /** Add many markups with a single batched layer draw. */
+  addMarkupNodes(markups: Markup[]): void;
   /** Remove a node by markup id */
   removeMarkupNode(id: string): void;
   /** Find node by markup id */
@@ -624,7 +630,7 @@ export function createStage(containerId: string, width: number, height: number, 
       bgImage = new Konva.Image({ image: canvas, x: 0, y: 0, width: widthPts, height: heightPts });
       bgLayer.destroyChildren();
       bgLayer.add(bgImage);
-      bgLayer.draw();
+      bgLayer.batchDraw();
     },
 
     setBackgroundImage(img: HTMLImageElement, widthPts: number, heightPts: number): void {
@@ -634,13 +640,14 @@ export function createStage(containerId: string, width: number, height: number, 
       bgImage = new Konva.Image({ image: img, x: 0, y: 0, width: widthPts, height: heightPts });
       bgLayer.destroyChildren();
       bgLayer.add(bgImage);
+      drawCounts.bgSync++;
       bgLayer.draw();
     },
 
     updatePdfCanvas(canvas: HTMLCanvasElement): void {
       if (bgImage) {
         bgImage.image(canvas);
-        bgLayer.draw();
+        bgLayer.batchDraw();
       }
     },
 
@@ -659,20 +666,29 @@ export function createStage(containerId: string, width: number, height: number, 
         x: Math.max(20, (containerW - pageScreenW) / 2),
         y: Math.max(20, (containerH - pageScreenH) / 2),
       });
+      drawCounts.stageSync++;
       stage.draw();
     },
 
     addMarkupNode(markup: Markup): Konva.Node {
       const node = createMarkupNode(markup, _pageHeightPts);
       markupLayer.add(node as Konva.Shape);
-      markupLayer.draw();
+      markupLayer.batchDraw();
       return node;
+    },
+
+    addMarkupNodes(markups: Markup[]): void {
+      for (const m of markups) {
+        markupLayer.add(createMarkupNode(m, _pageHeightPts) as Konva.Shape);
+      }
+      markupLayer.batchDraw();
     },
 
     removeMarkupNode(id: string): void {
       const node = stage.findOne(`#${id}`);
       if (node) {
         node.destroy();
+        drawCounts.markupSync++;
         markupLayer.draw();
       }
     },
@@ -696,6 +712,7 @@ export function createStage(containerId: string, width: number, height: number, 
       const newNode = createMarkupNode(markup, _pageHeightPts);
       if (saved) newNode.setAttrs(saved);
       markupLayer.add(newNode as Konva.Shape);
+      drawCounts.markupSync++;
       markupLayer.draw();
     },
 
@@ -909,12 +926,13 @@ export function createStage(containerId: string, width: number, height: number, 
 
     clearMarkups(): void {
       markupLayer.destroyChildren();
-      markupLayer.draw();
+      markupLayer.batchDraw();
     },
 
     getLayerPointer,
 
     draw(): void {
+      drawCounts.stageSync++;
       stage.draw();
     },
 

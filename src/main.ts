@@ -1,11 +1,11 @@
 import './style.css';
 import Konva from 'konva';
 import { appState } from './state/appState.ts';
-import { loadPdf, fitPageScale } from './pdf/renderer.ts';
+import { loadPdf, fitPageScale, type PageInfo } from './pdf/renderer.ts';
 import { mergePdfBytes, reorderPdfBytes, deletePdfPage, rotatePdfPage } from './pdf/combine.ts';
 import { initPagePanel, type PagePanel } from './ui/pagePanel.ts';
 import { migrateProjectData } from './storage/projectStore.ts';
-import { createStage } from './canvas/stage.ts';
+import { createStage, drawCounts } from './canvas/stage.ts';
 import { initToolbar, showCanvas, updateCursorStatus } from './ui/toolbar.ts';
 import { initPropertiesPanel } from './ui/properties.ts';
 import { showModal, showExportOptionsDialog } from './ui/modal.ts';
@@ -389,7 +389,7 @@ function rebuildMarkupLayer(): void {
   stageManager.clearMarkups();
   const page = currentPage();
   if (!page) return;
-  page.markups.forEach(m => stageManager!.addMarkupNode(m));
+  stageManager.addMarkupNodes(page.markups);
   if (activeTool instanceof SelectTool) {
     (activeTool as SelectTool).refreshDraggable();
   }
@@ -634,13 +634,20 @@ async function loadPdfFile(bytes: Uint8Array, fileName: string, filePath: string
   }
 }
 
+// Navigation race guard: every async step in renderPage checks its token
+// before touching the stage, so rapid navigations can never let a stale
+// hi-res swap land on the wrong page.
+let navToken = 0;
+
 async function renderPage(pageIndex: number): Promise<void> {
   if (!pdfRenderer) return;
+  const token = ++navToken;
 
   const scrollContainer = document.getElementById('canvas-scroll-container')!;
   const containerW = scrollContainer.clientWidth || 900;
   const containerH = scrollContainer.clientHeight || 700;
   const { widthPts, heightPts } = await pdfRenderer.getPageSizePts(pageIndex);
+  if (token !== navToken || pdfRenderer.isDestroyed()) return;
 
   let zoom = appState.state.zoom;
   // First load: fit page to viewport
@@ -649,8 +656,18 @@ async function renderPage(pageIndex: number): Promise<void> {
     appState.update({ zoom });
   }
 
-  // Render PDF at current zoom for hi-res background
-  const pageInfo = await pdfRenderer.loadPage(pageIndex, zoom);
+  // Two-stage render: show a placeholder raster at min(zoom, 1) immediately,
+  // then swap the hi-res canvas in via updatePdfCanvas (Konva stretches
+  // whatever canvas is on bgImage, so the placeholder looks right, just softer).
+  const placeholderScale = Math.min(zoom, 1);
+  let placeholder: PageInfo;
+  try {
+    placeholder = await pdfRenderer.loadPage(pageIndex, placeholderScale, true);
+  } catch (e) {
+    if (String((e as Error)?.message) === 'renderer destroyed') return; // structural op mid-render
+    throw e;
+  }
+  if (token !== navToken || pdfRenderer.isDestroyed()) return;
 
   if (!stageManager) {
     // Create stage sized to container viewport (not page)
@@ -663,7 +680,7 @@ async function renderPage(pageIndex: number): Promise<void> {
     stageManager.resize(containerW, containerH);
   }
 
-  stageManager.setPdfImage(pageInfo.canvas, widthPts, heightPts);
+  stageManager.setPdfImage(placeholder.canvas, widthPts, heightPts);
 
   // Restore the image-as-background that was set before any PDF was loaded.
   // We overlay it on top of the PDF by re-adding to bgLayer, then move it
@@ -696,9 +713,39 @@ async function renderPage(pageIndex: number): Promise<void> {
   stageManager.clearMarkups();
 
   const page = currentPage();
-  page?.markups.forEach(m => stageManager!.addMarkupNode(m));
+  if (page) stageManager.addMarkupNodes(page.markups);
 
-  activateCurrentTool();
+  activateCurrentTool(); // page is interactive at placeholder res from here on
+
+  // Hi-res pass: skipped when the placeholder is already at (or above) zoom.
+  // Callers (applyStructuralOp, page-change) await renderPage before re-render
+  // dependent state — keep awaiting the swap so undo/structural flows never
+  // race it.
+  if (placeholderScale < zoom) {
+    try {
+      const hiRes = await pdfRenderer.loadPage(pageIndex, zoom, true);
+      if (token !== navToken || pdfRenderer.isDestroyed()) return;
+      stageManager.updatePdfCanvas(hiRes.canvas);
+    } catch (e) {
+      if (String((e as Error)?.message) === 'renderer destroyed') return;
+      throw e;
+    }
+  }
+
+  // Neighbor prefetch: warm pdf.js page structure for i±1 during idle time.
+  // The 1.8s cold cost is mostly the first getPage parse; warming structure
+  // (not rasters, in v1) makes first visits behave like warm ones. Never
+  // touches the stage — no token guard needed beyond the destroyed check.
+  const doc = pdfRenderer.doc;
+  const warm = () => {
+    if (pdfRenderer?.isDestroyed()) return;
+    for (const off of [-1, 1]) { // neighbours i-1 / i+1 (0-indexed)
+      const pageArg = pageIndex + off + 1;   // getPage is 1-indexed
+      if (pageArg >= 1 && pageArg <= doc.numPages) doc.getPage(pageArg).catch(() => {});
+    }
+  };
+  if (typeof requestIdleCallback === 'function') requestIdleCallback(warm, { timeout: 2000 });
+  else setTimeout(warm, 200);
 }
 
 let wheelDebounce: ReturnType<typeof setTimeout> | null = null;
@@ -813,6 +860,9 @@ function buildToolContext(): ToolContext {
   get pageSourceFiles(): (string | undefined)[] { return project.pages.map(p => p.sourceFile); },
   get pageMarkups(): number[] { return project.pages.map(p => p.markups.length); },
   get pagePanelOpen(): boolean { return pagePanel?.isOpen() ?? false; },
+  get drawCounts() { return { ...drawCounts }; },
+  get navToken(): number { return navToken; },
+  get lastRenderWasCacheHit(): boolean { return pdfRenderer?.lastRenderWasCacheHit() ?? false; },
   reorderPages(order: number[]): Promise<void> { return reorderPages(order); },
   rotatePage(index: number): Promise<void> { return rotatePageAt(index); },
   deletePage(index: number): Promise<void> { return deletePageAt(index); },

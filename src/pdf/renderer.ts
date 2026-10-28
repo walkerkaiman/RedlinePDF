@@ -1,4 +1,5 @@
 import * as pdfjsLib from 'pdfjs-dist';
+import { PageCache } from './pageCache.ts';
 import type { PDFDocumentProxy, PDFPageProxy, PageViewport } from 'pdfjs-dist';
 
 // pdfjs-dist v4: worker file is pdf.worker.min.mjs (or pdf.worker.mjs)
@@ -18,11 +19,14 @@ export interface PageInfo {
 export interface PdfRenderer {
   doc: PDFDocumentProxy;
   numPages: number;
-  loadPage(pageIndex: number, scale: number): Promise<PageInfo>;
+  /** trackCacheHit: main render path only — thumb/export calls must not pollute the seam. */
+  loadPage(pageIndex: number, scale: number, trackCacheHit?: boolean): Promise<PageInfo>;
   getPageSizePts(pageIndex: number): Promise<{ widthPts: number; heightPts: number }>;
   destroy(): void;
   /** True after destroy(); late async work (lazy thumbnails) must bail. */
   isDestroyed(): boolean;
+  /** True if the most recent loadPage() was served from the page cache (test seam). */
+  lastRenderWasCacheHit(): boolean;
 }
 
 /**
@@ -32,13 +36,23 @@ export async function loadPdf(bytes: Uint8Array): Promise<PdfRenderer> {
   const loadingTask = pdfjsLib.getDocument({ data: bytes.slice(0) });
   const doc = await loadingTask.promise;
   let destroyed = false;
+  // Per-renderer page cache: dies with this closure when a structural op
+  // destroys the renderer (page indices change meaning after reorder/delete).
+  const pageCache = new PageCache();
+  let lastWasCacheHit = false;
 
   return {
     doc,
     numPages: doc.numPages,
 
-    async loadPage(pageIndex: number, scale: number): Promise<PageInfo> {
+    async loadPage(pageIndex: number, scale: number, trackCacheHit = false): Promise<PageInfo> {
       if (destroyed) throw new Error('renderer destroyed');
+      const cached = pageCache.get(pageIndex, scale);
+      if (cached) {
+        if (trackCacheHit) lastWasCacheHit = true;
+        return cached;
+      }
+      if (trackCacheHit) lastWasCacheHit = false;
       const page: PDFPageProxy = await doc.getPage(pageIndex + 1); // pdf.js is 1-indexed
       const viewport = page.getViewport({ scale });
 
@@ -53,13 +67,15 @@ export async function loadPdf(bytes: Uint8Array): Promise<PdfRenderer> {
       // PDF user-space dimensions at scale=1
       const baseViewport = page.getViewport({ scale: 1 });
 
-      return {
+      const info: PageInfo = {
         pageNumber: pageIndex + 1,
         widthPts: baseViewport.width,
         heightPts: baseViewport.height,
         canvas,
         viewport,
       };
+      pageCache.put(pageIndex, scale, info);
+      return info;
     },
 
     async getPageSizePts(pageIndex: number): Promise<{ widthPts: number; heightPts: number }> {
@@ -73,6 +89,7 @@ export async function loadPdf(bytes: Uint8Array): Promise<PdfRenderer> {
       doc.destroy();
     },
     isDestroyed(): boolean { return destroyed; },
+    lastRenderWasCacheHit(): boolean { return lastWasCacheHit; },
   };
 }
 
