@@ -16,3 +16,7 @@
 - All 5 phases shipped: batched draws (addMarkupNodes + batchDraw), two-stage render (placeholder min(zoom,1) + hi-res swap via updatePdfCanvas, navToken race guard), per-renderer LRU page cache (60MP budget, scale.toFixed(3) keys, opt-in trackCacheHit seam), neighbor getPage prefetch at idle, scripts/measure-page-nav.mjs.
 - Measured (59MB/14pg Fable PDF, WebKit, first-change→stable): warm 54–80→25–42ms first-change; cold navigations show pixels sooner (placeholder), full-raster unchanged. Median 71→345 became 40→319.
 - Verified: tsc clean, vitest 58/58 (7 new page-cache unit), Playwright 43/43 WebKit prod build (3 new e2e: draws/race/cache). Details + review in .hermes/plans/2026-10-27_page-nav-perf-progress.md.
+
+## Release 0.2.21 (2026-10-27) — page-nav perf shipped locally
+- Tag v0.2.21 on eb4bc28 (perf b3a63a5 + version sync via scripts/sync-release-version.mjs).
+- npx tauri build → install deb (AppImage linuxdeploy failure pre-existing, ignore).
