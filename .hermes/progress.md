@@ -20,3 +20,9 @@
 ## Release 0.2.21 (2026-10-27) — page-nav perf shipped locally
 - Tag v0.2.21 on eb4bc28 (perf b3a63a5 + version sync via scripts/sync-release-version.mjs).
 - npx tauri build → RedlinePDF_0.2.21_amd64.deb built + installed system-wide (dpkg shows 0.2.21, binary smoke-starts). AppImage linuxdeploy failure pre-existing, ignored.
+
+## Count-legend seed bug fixed (2026-10-27) — release 0.2.22
+- **Bug:** dragging/opening a fresh PDF stamped a "Count Legend" box on the page. Root cause: loadPdfFile eagerly called addCountCategory() (Count tool self-seeds on first click, so the seed was redundant). Removed (commit d899f01).
+- **Test fallout:** 5 specs (select-tool x3, select-drag, cross-page-multidraw) had been passing ONLY because the legend node sat at rect[0] — their draws ran with the select tool active (commits nothing). Fixed honestly: click box tool before drawing; node-count assertion no longer bakes in the legend. New regression spec e2e-count-no-seed.
+- **Verified:** Playwright 44/44, vitest 58/58, tsc clean. Combine-drop and .redline restore paths never seeded (unaffected).
+- **Release:** tag v0.2.22 on 07dd454; deb build + local reinstall in progress.
