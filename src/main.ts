@@ -14,6 +14,7 @@ import { autosaveProject, clearAutosave, importProjectFile, saveWithFilePicker, 
 import { isTauri, openPdfFileNative, saveFileNative, openProjectFileNative, openRecentPdfNative, openRecentProjectNative, saveSnapshotToDesktop } from './tauri/integration.ts';
 import { getRecentPdfs, getRecentProjects, addRecentPdf, addRecentProject, removeRecentPdf, removeRecentProject } from './storage/recentFiles.ts';
 import { exportRedlinedPdf } from './export/exportPdf.ts';
+import { isImageFile, hasImageExtension, imageMimeFor } from './util/fileTypes.ts';
 import { computeScale } from './measure/scale.ts';
 import { formatLinear, formatArea } from './measure/units.ts';
 import { konvaToPdf, distance, polygonArea, polygonPerimeter } from './geometry/transform.ts';
@@ -1149,25 +1150,9 @@ async function handleDroppedFile(file: File): Promise<void> {
   }
 }
 
-/** Supported image extensions */
-const IMAGE_EXTENSIONS = new Set([
-  '.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg',
-]);
-
-function isImageFile(file: File): boolean {
-  return IMAGE_EXTENSIONS.has('.' + file.name.split('.').pop()!.toLowerCase());
-}
-
-/** Correct MIME for an image file name (File.type feeds the data-URL prefix,
- *  so image/jpg / image/svg would break decoding of the dropped image). */
-function imageMimeFor(name: string): string {
-  const ext = name.split('.').pop()!.toLowerCase();
-  switch (ext) {
-    case 'jpg': return 'image/jpeg';
-    case 'svg': return 'image/svg+xml';
-    default: return 'image/' + ext; // png, gif, webp, bmp
-  }
-}
+/** Supported image extensions + name/File checks + MIME mapping live in
+ *  src/util/fileTypes.ts (unit-tested; the Tauri drop path is not reachable
+ *  from the browser e2e harness). */
 
 /** Convert a browser File to a base64 PNG data URL */
 function fileToPngDataUrl(file: File): Promise<string> {
@@ -1320,7 +1305,7 @@ function setupDragDrop(): void {
             const file = new File([blob], name, { type: 'application/json' });
             const { project: p, pdfBytes: byt } = await importProjectFile(file);
             await loadPdfFromProject(p, byt, name, path);
-          } else if (IMAGE_EXTENSIONS.has(name.split('.').pop()!.toLowerCase())) {
+          } else if (hasImageExtension(name)) {
             const bytes = await readFile(path);
             const imgFile = new File([bytes], name, { type: imageMimeFor(name) });
             await handleDroppedImage(imgFile);
