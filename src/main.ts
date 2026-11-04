@@ -1158,6 +1158,17 @@ function isImageFile(file: File): boolean {
   return IMAGE_EXTENSIONS.has('.' + file.name.split('.').pop()!.toLowerCase());
 }
 
+/** Correct MIME for an image file name (File.type feeds the data-URL prefix,
+ *  so image/jpg / image/svg would break decoding of the dropped image). */
+function imageMimeFor(name: string): string {
+  const ext = name.split('.').pop()!.toLowerCase();
+  switch (ext) {
+    case 'jpg': return 'image/jpeg';
+    case 'svg': return 'image/svg+xml';
+    default: return 'image/' + ext; // png, gif, webp, bmp
+  }
+}
+
 /** Convert a browser File to a base64 PNG data URL */
 function fileToPngDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -1273,8 +1284,10 @@ function setupDragDrop(): void {
     await handleDroppedFile(file);
   });
 
-  // Tauri-native file drop: WebView2 on Windows intercepts OS drag-drop before
-  // the HTML5 dataTransfer fires, so we listen to the Tauri event as a fallback.
+  // Tauri-native file drop: Tauri v2 has dragDropEnabled=true by default, so the
+  // webview (WebView2 on Windows, WebKitGTK on Linux) intercepts OS drag-drop
+  // before the HTML5 dataTransfer fires with files — dataTransfer.files is empty
+  // in the webview. We listen to the Tauri event and read the path via plugin-fs.
   if (isTauri()) {
     import('@tauri-apps/api/event').then(({ listen }) => {
       listen<{ paths: string[]; position: { x: number; y: number } }>('tauri://drag-drop', async (event) => {
@@ -1309,9 +1322,16 @@ function setupDragDrop(): void {
             await loadPdfFromProject(p, byt, name, path);
           } else if (IMAGE_EXTENSIONS.has(name.split('.').pop()!.toLowerCase())) {
             const bytes = await readFile(path);
-            const imgFile = new File([bytes], name, { type: 'image/' + name.split('.').pop()!.toLowerCase() });
+            const imgFile = new File([bytes], name, { type: imageMimeFor(name) });
             await handleDroppedImage(imgFile);
+          } else {
+            showToast(`Unsupported file type: ${name}`, 'warn', 4000);
           }
+        } catch (err) {
+          // Surface failures (e.g. fs scope rejects the dropped path) instead of
+          // swallowing them — a silent no-op reads as "drag-drop is broken".
+          console.error('Error handling dropped file:', err);
+          showToast(`Could not open: ${name}`, 'warn', 5000);
         } finally {
           hideWorking();
         }
