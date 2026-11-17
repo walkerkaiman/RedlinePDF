@@ -26,3 +26,9 @@
 - **Test fallout:** 5 specs (select-tool x3, select-drag, cross-page-multidraw) had been passing ONLY because the legend node sat at rect[0] — their draws ran with the select tool active (commits nothing). Fixed honestly: click box tool before drawing; node-count assertion no longer bakes in the legend. New regression spec e2e-count-no-seed.
 - **Verified:** Playwright 44/44, vitest 58/58, tsc clean. Combine-drop and .redline restore paths never seeded (unaffected).
 - **Release:** tag v0.2.22 on 07dd454; deb build + local reinstall in progress.
+
+## Text-box handle scaling fix (2026-11-17)
+- bakeTransform discarded transformer scale for text ("auto-size" era) -> handle drags snapped back. Now bakes scale into style.fontSize (dominant axis), side-handle drags set wrap width, bg box resizes. Commit 0d8ea47. Spec tests/text-scale.spec.ts (fontSize 12->55, persists across page nav).
+
+## Cross-page copy/paste (2026-11-17)
+- Ctrl+C/Ctrl+V + toolbar buttons; buffer = deep clones + referenced count categories. Paste lands on CURRENT page at identical PDF coords (no offset); categories carried by id; legend/count summary refreshed. clipboardCount state field drives paste-button enablement. Commit 24d6f5b. Spec tests/copy-paste-cross-page.spec.ts. Suite: 47 e2e + 63 unit green.
