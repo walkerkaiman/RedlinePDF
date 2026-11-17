@@ -32,3 +32,6 @@
 
 ## Cross-page copy/paste (2026-11-17)
 - Ctrl+C/Ctrl+V + toolbar buttons; buffer = deep clones + referenced count categories. Paste lands on CURRENT page at identical PDF coords (no offset); categories carried by id; legend/count summary refreshed. clipboardCount state field drives paste-button enablement. Commit 24d6f5b. Spec tests/copy-paste-cross-page.spec.ts. Suite: 47 e2e + 63 unit green.
+
+## Text-box re-edit (2026-11-17)
+- Text was write-only after deselect. dblclick (select tool) -> text-markup-dblclick -> openEditorForMarkup prefilled at box position; 'markup-text-edit' commit updates in place (undoable), empty text deletes; setSelection(null)+id to re-attach transformer post-rebuild. Spec tests/text-reedit.spec.ts (prefill, in-place update count stays 1, empty=delete). 47 e2e + 63 unit green.
