@@ -42,6 +42,8 @@ export interface AppStateData {
   countSymbolSize: number;
   /** Props of the currently selected image markup (populated by main.ts) */
   selectedImageProps: { opacity: number; strokeColor: string; strokeWidth: number; strokeOpacity: number } | null;
+  /** Number of markups sitting in the copy/paste clipboard (0 = paste disabled). */
+  clipboardCount: number;
 }
 
 type StateListener = (state: Readonly<AppStateData>) => void;
@@ -86,6 +88,7 @@ class AppStateManager {
     countSummary: [],
     countSymbolSize: 10,
     selectedImageProps: null,
+    clipboardCount: 0,
   };
 
   private listeners: StateListener[] = [];

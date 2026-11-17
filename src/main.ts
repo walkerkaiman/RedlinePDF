@@ -356,6 +356,76 @@ function duplicateSelectedMarkups(): void {
   scheduleAutosave();
 }
 
+// ── Copy / paste (works across pages) ────────────────────────────────────────
+// Buffer holds deep clones of the copied markups PLUS the count-categories they
+// reference, so a count stamp pasted onto a different page still finds (or
+// gains) its category and legend there.
+let clipboardBuffer: { markups: Markup[]; categories: CountCategory[] } | null = null;
+
+function copySelectedMarkups(): void {
+  const ids = appState.state.selectedMarkupIds;
+  if (ids.length === 0) return;
+  const page = currentPage();
+  if (!page) return;
+
+  const selected = ids
+    .map((id) => page.markups.find((m) => m.id === id))
+    .filter((m): m is Markup => !!m)
+    .map((m) => JSON.parse(JSON.stringify(m)) as Markup);
+  if (selected.length === 0) return;
+
+  const catIds = new Set(
+    selected.filter((m) => m.type === 'count').map((m) => (m as CountMarkup).categoryId),
+  );
+  const categories = page.countCategories
+    .filter((c) => catIds.has(c.id))
+    .map((c) => JSON.parse(JSON.stringify(c)) as CountCategory);
+
+  clipboardBuffer = { markups: selected, categories };
+  appState.update({ clipboardCount: selected.length });
+  showToast(`Copied ${selected.length} element${selected.length > 1 ? 's' : ''}`, 'info');
+}
+
+function pasteCopiedMarkups(): void {
+  if (!clipboardBuffer || clipboardBuffer.markups.length === 0) return;
+  const page = currentPage();
+  if (!page) return;
+
+  snapshotMarkups();
+
+  // Carry the count categories the stamps reference (same ids) to this page.
+  for (const cat of clipboardBuffer.categories) {
+    if (!page.countCategories.some((c) => c.id === cat.id)) {
+      page.countCategories.push(JSON.parse(JSON.stringify(cat)) as CountCategory);
+    }
+  }
+
+  const newIds: string[] = [];
+  let hasCount = false;
+  for (const template of clipboardBuffer.markups) {
+    const clone = JSON.parse(JSON.stringify(template)) as Markup;
+    clone.id = generateId();
+    // Match position: PDF-space coordinates are kept verbatim; only the page
+    // changes. (Unlike duplicate, NO offset.)
+    clone.pageIndex = page.index;
+    if (clone.type === 'count') hasCount = true;
+    page.markups.push(clone);
+    stageManager?.addMarkupNode(clone);
+    newIds.push(clone.id);
+  }
+
+  appState.setSelection(null);
+  if (newIds.length === 1) appState.setSelection(newIds[0]);
+  else appState.setMultiSelection(newIds);
+  if (hasCount) {
+    refreshLegend(page);
+    pushCountSummary();
+  }
+
+  showToast(`Pasted ${newIds.length} element${newIds.length > 1 ? 's' : ''} onto page ${page.index + 1} (same position)`, 'info');
+  scheduleAutosave();
+}
+
 /**
  * Returns true if a style property key is applicable to a given markup type.
  * Used when propagating a style change to multiple selected markups so we only
@@ -1728,6 +1798,8 @@ function setupKeyboardShortcuts(): void {
     if (ctrl && e.key === 's') { e.preventDefault(); void handleSaveProject(); return; }
     if (ctrl && e.key === 'e') { e.preventDefault(); document.getElementById('btn-export-pdf')?.click(); return; }
     if (ctrl && e.key === 'd' && appState.state.selectedMarkupIds.length > 0) { e.preventDefault(); duplicateSelectedMarkups(); return; }
+    if (ctrl && e.key === 'c' && appState.state.selectedMarkupIds.length > 0) { e.preventDefault(); copySelectedMarkups(); return; }
+    if (ctrl && (e.key === 'v' || e.key === 'V')) { e.preventDefault(); pasteCopiedMarkups(); return; }
 
     if (e.key === 'Delete' || e.key === 'Backspace') {
       removeSelectedMarkups();
@@ -1969,6 +2041,8 @@ function setupStateListeners(): void {
   });
 
   appState.on('cmd-duplicate', () => duplicateSelectedMarkups());
+  appState.on('cmd-copy', () => copySelectedMarkups());
+  appState.on('cmd-paste', () => pasteCopiedMarkups());
 
   appState.on('cmd-count-add-category', () => addCountCategory());
   appState.on('cmd-count-rename', (data) => {

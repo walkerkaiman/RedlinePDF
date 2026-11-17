@@ -24,6 +24,8 @@ export function initToolbar(): void {
 
   // Copy selected (dispatches to main.ts)
   document.getElementById('btn-duplicate')?.addEventListener('click', () => appState.emit('cmd-duplicate'));
+  document.getElementById('btn-copy')?.addEventListener('click', () => appState.emit('cmd-copy'));
+  document.getElementById('btn-paste')?.addEventListener('click', () => appState.emit('cmd-paste'));
 
   // Zoom controls
   document.getElementById('btn-zoom-in')?.addEventListener('click', () => {
@@ -91,6 +93,12 @@ export function initToolbar(): void {
     // Duplicate button: enable when markup is selected, disable otherwise
     const dupBtn = document.getElementById('btn-duplicate') as HTMLButtonElement;
     if (dupBtn) dupBtn.disabled = !state.selectedMarkupId;
+
+    // Copy: needs a selection. Paste: needs a non-empty clipboard.
+    const copyBtn = document.getElementById('btn-copy') as HTMLButtonElement;
+    if (copyBtn) copyBtn.disabled = !state.selectedMarkupId;
+    const pasteBtn = document.getElementById('btn-paste') as HTMLButtonElement;
+    if (pasteBtn) pasteBtn.disabled = !(state.clipboardCount > 0);
 
     // Page indicator
     const indicator = document.getElementById('page-indicator');
