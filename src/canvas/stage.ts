@@ -213,6 +213,7 @@ export function createMarkupNode(markup: Markup, pageHeightPts: number): Konva.N
       // Render text at its natural content size — no fixed width/height constraint.
       const text = new Konva.Text({
         x: 4, y: 4,
+        name: 'text-element',
         text: m.text,
         fontFamily: textStyle.fontFamily ?? 'Arial',
         fontSize: textStyle.fontSize ?? 12,
@@ -221,6 +222,7 @@ export function createMarkupNode(markup: Markup, pageHeightPts: number): Konva.N
       });
       // Size the background rect to the text's natural dimensions
       const bgRect = new Konva.Rect({
+        name: 'text-bg',
         width: text.width() + 8,
         height: text.height() + 8,
         fill: hexWithOpacity(textStyle.bgColor ?? '#ffffff', textStyle.bgOpacity ?? 0.8),
@@ -775,12 +777,41 @@ export function createStage(containerId: string, width: number, height: number, 
           break;
         }
         case 'text': {
-          // Text boxes auto-size to content — only bake position, discard scale.
+          // Text boxes auto-size to content. Transformer scale cannot be kept as
+          // node scale (glyphs can't stretch non-uniformly) — bake it into
+          // fontSize so handle-resizes actually persist instead of snapping back.
           const m = markup as TextMarkup;
           const pdfPos = konvaToPdf(tx, ty, h);
           m.x = pdfPos.x; m.y = pdfPos.y;
           node.x(tx); node.y(ty);
           node.scaleX(1); node.scaleY(1);
+
+          const textNode = node instanceof Konva.Group ? node.findOne<Konva.Text>('.text-element') ?? null : null;
+          const bgRect = node instanceof Konva.Group ? node.findOne<Konva.Rect>('.text-bg') ?? null : null;
+          if (!textNode) break;
+
+          const baseFont = m.style.fontSize ?? 12;
+          // Font follows the dominant scaled axis (corner drag: sx≈sy; side
+          // drag: only one axis moved).
+          const sf = Math.abs(sx - 1) >= Math.abs(sy - 1) ? sx : sy;
+          const newFont = Math.max(2, Math.round(baseFont * Math.abs(sf)));
+          m.style.fontSize = newFont;
+
+          const natW = textNode.width(); // natural (unconstrained) width, old font
+          textNode.fontSize(newFont);
+          if (Math.abs(sx - sy) > 1e-6) {
+            // Side-handle drag: set a wrap width so the box width follows the drag.
+            textNode.width(Math.max(10, natW * Math.abs(sx)));
+          } else {
+            // Corner drag: drop the wrap constraint, re-measure naturally.
+            textNode.setAttr('width', undefined);
+          }
+          m.width = textNode.width();
+          m.height = textNode.height();
+          if (bgRect) {
+            bgRect.width(textNode.width() + 8);
+            bgRect.height(textNode.height() + 8);
+          }
           break;
         }
         case 'measure-linear': {
