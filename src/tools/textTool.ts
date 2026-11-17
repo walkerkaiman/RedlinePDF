@@ -1,7 +1,8 @@
 import type { ToolProtocol } from './toolProtocol';
 import { toolRunner } from './toolRunner';
 import { generateId } from '../model/document.ts';
-import { konvaToPdf } from '../geometry/transform.ts';
+import type { TextMarkup } from '../model/document.ts';
+import { konvaToPdf, pdfToKonva } from '../geometry/transform.ts';
 
 /**
  * Text tool — CLICK-ONLY by design.
@@ -24,11 +25,15 @@ function hexToRgb(hex: string): {r: number, g: number, b: number} {
   } : {r: 0, g: 0, b: 0};
 }
 
-function openNewEditor(kx: number, ky: number): void {
+// When set, the open editor RE-EDITS this existing markup instead of creating
+// a new one (dblclick a text box with the select tool).
+let editingId: string | null = null;
+
+function openNewEditor(kx: number, ky: number, existing?: TextMarkup): void {
   const stageManager = toolRunner.getStageManager();
   if (!stageManager?.stage) return;
   
-  const style = toolRunner.getActiveStyle();
+  const style = existing?.style ?? toolRunner.getActiveStyle();
   const scale = stageManager.stage.scaleX();
   const pos = stageManager.stage.position();
   const box = stageManager.stage.container().getBoundingClientRect();
@@ -37,6 +42,7 @@ function openNewEditor(kx: number, ky: number): void {
     screenX: box.left + kx * scale + pos.x,
     screenY: box.top + ky * scale + pos.y,
     scale,
+    initialValue: existing?.text ?? '',
     fontFamily: style?.fontFamily || 'Arial',
     fontSize: style?.fontSize || 12,
     bold: style?.bold || false,
@@ -45,6 +51,7 @@ function openNewEditor(kx: number, ky: number): void {
     bgColor: style?.bgColor ? `rgba(${hexToRgb(style.bgColor).r},${hexToRgb(style.bgColor).g},${hexToRgb(style.bgColor).b},0.8)` : 'white',
     borderColor: style?.strokeColor || '#666',
   });
+  editingId = existing?.id ?? null;
 
   let done = false;
   const finish = (e?: Event) => {
@@ -58,6 +65,21 @@ function openNewEditor(kx: number, ky: number): void {
     const screenH = editor.offsetHeight;
 
     destroyEditor();
+
+    const editId = editingId;
+    editingId = null;
+
+    if (editId) {
+      // Re-edit commit: update (or, when emptied, delete) the existing markup.
+      // main.ts handles snapshot + model write + node rebuild.
+      toolRunner.getAppState().emit('markup-text-edit', {
+        id: editId,
+        text,
+        width: screenW / scale,
+        height: screenH / scale,
+      });
+      return;
+    }
 
     if (!text || !stageManager) return;
 
@@ -140,7 +162,21 @@ export const textTool: ToolProtocol = {
   },
   deactivate() {
     destroyEditor();
+    editingId = null;
     const stageManager = toolRunner.getStageManager();
     if (stageManager?.stage) stageManager.stage.container().style.cursor = 'default';
   },
 };
+
+/**
+ * Open the editor PRE-FILLED with an existing text markup's content at its
+ * current position. Committing updates the markup in place (empty text deletes
+ * it) via the `markup-text-edit` event handled in main.ts.
+ */
+export function openEditorForMarkup(existing: TextMarkup): void {
+  if (editor) return;
+  const stageManager = toolRunner.getStageManager();
+  if (!stageManager?.stage) return;
+  const pos = pdfToKonva(existing.x, existing.y, stageManager.pageHeightPts);
+  openNewEditor(pos.x, pos.y, existing);
+}

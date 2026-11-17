@@ -191,6 +191,13 @@ export const selectTool: ToolProtocol = {
     }
   },
 
+  onDblClick() {
+    // Double-click on a markup: main.ts decides whether it is editable
+    // (text boxes open their editor pre-filled via `text-markup-dblclick`).
+    const node = hitTest();
+    if (node) appState.emit('text-markup-dblclick', { id: node.id() });
+  },
+
   deactivate() {
     const sm = getSM();
     clearHighlights();

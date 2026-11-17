@@ -21,7 +21,7 @@ import { konvaToPdf, distance, polygonArea, polygonPerimeter } from './geometry/
 import type { Markup, PageData, ProjectData } from './model/document.ts';
 import { DEFAULT_PAGE_SCALE, DEFAULT_UNITS, generateId, COUNT_SYMBOLS, COUNT_COLORS } from './model/document';
 // Count category/markup/types still needed locally
-import type { CountCategory, CountSymbol, CountMarkup, CountLegendMarkup, ImageMarkup } from './model/document';
+import type { CountCategory, CountSymbol, CountMarkup, CountLegendMarkup, ImageMarkup, TextMarkup } from './model/document';
 
 // Import BaseTool for instanceof checks in undo/redo/select (still used)
 import type { BaseTool, ToolContext } from './tools/baseTool';
@@ -36,7 +36,7 @@ import { arrowTool } from './tools/arrowTool.ts';
 import { ellipseTool } from './tools/ellipseTool.ts';
 import { polygonAreaTool } from './tools/polygonAreaTool.ts';
 import { boxTool } from './tools/boxTool.ts';
-import { textTool } from './tools/textTool.ts';
+import { textTool, openEditorForMarkup } from './tools/textTool.ts';
 import { countTool } from './tools/countTool.ts';
 import { panTool } from './tools/panTool.ts';
 import { scaleSetTool } from './tools/scaleSetTool.ts';
@@ -2043,6 +2043,40 @@ function setupStateListeners(): void {
   appState.on('cmd-duplicate', () => duplicateSelectedMarkups());
   appState.on('cmd-copy', () => copySelectedMarkups());
   appState.on('cmd-paste', () => pasteCopiedMarkups());
+
+  // Re-edit an existing text box: select tool double-click -> pre-filled editor.
+  appState.on('text-markup-dblclick', (data) => {
+    const { id } = data as { id: string };
+    const markup = currentPage()?.markups.find((m) => m.id === id);
+    if (!markup || markup.type !== 'text') return;
+    appState.setSelection(id);
+    openEditorForMarkup(markup as TextMarkup);
+  });
+
+  // Commit from a re-edit: update the markup in place; empty text deletes it.
+  appState.on('markup-text-edit', (raw) => {
+    const { id, text, width, height } = raw as { id: string; text: string; width: number; height: number };
+    const page = currentPage();
+    const markup = page?.markups.find((m) => m.id === id);
+    if (!page || !markup || markup.type !== 'text') return;
+    snapshotMarkups();
+    if (!text) {
+      page.markups.splice(page.markups.indexOf(markup), 1);
+      stageManager?.removeMarkupNode(id);
+      appState.setSelection(null);
+    } else {
+      (markup as TextMarkup).text = text;
+      markup.width = width;
+      markup.height = height;
+      stageManager?.updateMarkupNode(markup);
+      // Node was destroyed+rebuilt; force a selection-change so the
+      // transformer/highlight re-attach to the fresh node (a same-id
+      // setSelection would be a no-diff update and skip the refresh).
+      appState.setSelection(null);
+      appState.setSelection(id);
+    }
+    scheduleAutosave();
+  });
 
   appState.on('cmd-count-add-category', () => addCountCategory());
   appState.on('cmd-count-rename', (data) => {
