@@ -115,6 +115,7 @@ function refreshSelectionVisual(): void {
       const box = n.getClientRect({ relativeTo: sm.markupLayer });
       r.setAttrs({ x: box.x, y: box.y, width: box.width, height: box.height });
     });
+    n.on('dragstart.seldrag', () => appState.emit('markup-transform-start'));
     n.on('dragend.seldrag', () => appState.emit('markup-transform', { id: n.id() }));
   }
 
@@ -133,6 +134,10 @@ function refreshSelectionVisual(): void {
         const hr = highlights.find((h) => Math.abs(h.x() - box.x) < 1 && Math.abs(h.y() - box.y) < 1);
         hr?.setAttrs({ x: box.x, y: box.y, width: box.width, height: box.height });
       }
+    });
+    transformer.on('transformstart', () => {
+      // main.ts snapshots page state right before the resize/rotate applies.
+      appState.emit('markup-transform-start');
     });
     transformer.on('transformend', () => {
       for (const n of transformer!.nodes()) appState.emit('markup-transform', { id: n.id() });

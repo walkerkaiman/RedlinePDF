@@ -157,7 +157,12 @@ async function applyStructural(snap: StructuralSnapshot): Promise<void> {
 function snapshotMarkups(): void {
   const page = currentPage();
   if (!page) return;
-  undoStack.push(JSON.stringify({ markups: page.markups, countCategories: page.countCategories }));
+  const snap = JSON.stringify({ markups: page.markups, countCategories: page.countCategories });
+  // Dedupe: a no-op drag (or repeated trigger) must not push an identical
+  // snapshot on top of the stack, or the first Ctrl+Z restores identical
+  // state and the user has to press undo again — reads as a dead step.
+  if (undoStack.length > 0 && undoStack[undoStack.length - 1] === snap) return;
+  undoStack.push(snap);
   redoStack.length = 0;
   appState.update({ undoAvailable: undoStack.length > 0, redoAvailable: false });
   scheduleAutosave();
