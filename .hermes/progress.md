@@ -38,3 +38,6 @@
 
 ## Undo granularity fix (2026-11-17)
 - 'markup-transform-start' handler in main.ts was dead code (never emitted): drags/resizes pushed no snapshot, so one Ctrl+Z reverted drag+previous action together. selectTool now emits it on dragstart + transformstart; snapshotMarkups dedupes identical consecutive snapshots (no dead steps from micro-drags). tests/undo-granularity.spec.ts (2 specs). 51 e2e + 63 unit green.
+
+## v0.2.25 released (2026-11-17)
+- Ships: text-handle scaling, cross-page copy/paste, dblclick text re-edit, undo granularity fix. Cargo.toml + tauri.conf.json bumped, tag v0.2.25 pushed (run 44238326139 building binaries).
