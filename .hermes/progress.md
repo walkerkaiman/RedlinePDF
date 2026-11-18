@@ -35,3 +35,6 @@
 
 ## Text-box re-edit (2026-11-17)
 - Text was write-only after deselect. dblclick (select tool) -> text-markup-dblclick -> openEditorForMarkup prefilled at box position; 'markup-text-edit' commit updates in place (undoable), empty text deletes; setSelection(null)+id to re-attach transformer post-rebuild. Spec tests/text-reedit.spec.ts (prefill, in-place update count stays 1, empty=delete). 47 e2e + 63 unit green.
+
+## Undo granularity fix (2026-11-17)
+- 'markup-transform-start' handler in main.ts was dead code (never emitted): drags/resizes pushed no snapshot, so one Ctrl+Z reverted drag+previous action together. selectTool now emits it on dragstart + transformstart; snapshotMarkups dedupes identical consecutive snapshots (no dead steps from micro-drags). tests/undo-granularity.spec.ts (2 specs). 51 e2e + 63 unit green.
